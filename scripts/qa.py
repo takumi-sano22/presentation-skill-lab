@@ -184,10 +184,13 @@ def check_slide(sid: str, slide: dict, o_slide: dict, shapes: list[Shape]) -> li
             # あふれた部分（枠の下に伸びる範囲）が他の文字図形と重なるかスライド外に出れば崩れ（FAIL）。
             # 空き領域に収まるだけなら見た目は崩れないため警告に留める
             spill = Shape(s.name, s.kind, s.x, s.y + s.h, s.w, need - s.h)
-            collides = [o for o in texted if o is not s and spill.intersection(o) > 0.01]
+            # 文字図形に加え、画像・表・グラフ（可視の内容）との衝突も崩れとみなす。文字のない装飾図形は除く
+            visible = texted + [o for o in shapes if o.kind in ("pic", "graphicFrame")]
+            collides = [o for o in visible if o is not s and spill.intersection(o) > 0.01]
             beyond = s.y + need > SLIDE_H - FOOTER_RESERVED
             severity = "error" if collides or beyond else "warning"
-            where = f"「{collides[0].text[:10]}」と重なる" if collides else ("スライド下端に達する" if beyond else "下の空き領域に収まる")
+            hit = collides[0].text[:10] or collides[0].name if collides else ""
+            where = f"「{hit}」と重なる" if collides else ("スライド下端に達する" if beyond else "下の空き領域に収まる")
             add("text-overflow", s.name,
                 f"文字が枠からあふれる見込み（必要 {need:.2f}in > 枠 {s.h:.2f}in、{where}）「{s.text[:16]}」", severity)
     # typography: 最小文字サイズ
