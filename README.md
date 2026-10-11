@@ -125,6 +125,10 @@ scripts/build \
 - フォント名は design の値（例: Noto Sans JP）を PPTX の欧文・和文の両方に書き、描画環境では fontconfig の別名で Noto Sans CJK JP に解決する。
 - 配色コントラスト（本文 4.5:1 等）を満たさないテーマは FAIL。タイトル長・泣き別れは WARN。規約と例外・出典は [`docs/design-rules.md`](docs/design-rules.md)「日本語テーマ規約」。
 
+## Gate 4: Windows 版 PowerPoint の実機検証（#10）
+
+`scripts/dev.sh run python3 scripts/gate4_kit.py` が検証用の最終 PPTX 一式（7 デッキ）・編集対象の一覧・手順・記録テンプレート・ハッシュを `build/gate4-kit/` にまとめる（CI artifact `gate4-windows-kit`）。手順は [`docs/gate4-windows-checklist.md`](docs/gate4-windows-checklist.md)。PowerPoint 実機での表示・編集・保存は人が実施し #10 に記録する（Claude Code / CI では未実施）。
+
 ## 描画後の装飾の仕上げ（#22）
 
 `scripts/polish.py` が上流レンダラの出力を、内容（文字列・数値・表セル）を変えずに調整する: 1系列棒グラフの単色化、表の列幅を文字量で配分・行の少ない表の行を広げる（版面 55% 目安）、design v0.2 の `monospace_columns` で SQL・コード列を等幅に、タイトルの泣き別れを語の切れ目の明示改行で解消。図のノード名・辺ラベルは配置計算が禁則と語の切れ目で改行位置を決める。暗色テーマの見出し帯は背景から区別できる色にする。適用内容は manifest `polish` に記録し、内容保持・幾何・編集性の検査は仕上げ後の PPTX に対して行う。

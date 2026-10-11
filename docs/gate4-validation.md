@@ -27,7 +27,9 @@
 
 ## PowerPoint（Windows）実機試験
 
-検証用の合成PPTXだけを使用。Actionsの該当runを開き、`sample-decks` または `benchmark` artifactから `deck.pptx` を取得する。フォント `Noto Sans JP` がPowerPoint環境で解決するか確認し、代替が起こる場合は代替フォント名を記録する（フォントファイルを公開リポジトリにアップロードしない）。
+**詳細な手順・編集対象の一覧・記録テンプレートは [`gate4-windows-checklist.md`](gate4-windows-checklist.md)。** 検証用の PPTX 一式は Actions の artifact **`gate4-windows-kit`**（`scripts/gate4_kit.py` が生成。7 デッキの deck.pptx / PDF / PNG、`objects.md`、`CHECKLIST.md`、`RECORD_TEMPLATE.md`、`SHA256SUMS`、`kit.json`。保持 90 日）から取得する。以下は要旨。
+
+検証用の合成PPTXだけを使用。Actionsの該当runを開き、`gate4-windows-kit`（または `sample-decks` / `benchmark`）artifactから `deck.pptx` を取得する。フォント `Noto Sans JP` がPowerPoint環境で解決するか確認し、代替が起こる場合は代替フォント名を記録する（フォントファイルを公開リポジトリにアップロードしない）。
 
 1. **表示**: 表紙、長い日本語見出し、表、棒グラフ、ネイティブ構成図、色の異なるテーマのページを表示。PDF/PNGと比較し、はみ出し・文字消失・カラーバランス・矢印方向を記録。
 2. **編集**: PPTXを別名保存したコピー上で、タイトル文字、表のセル、棒グラフのデータ、ノード文字と位置、接続線を一つずつ選択・編集。保存→閉じる→再度開いて編集が残っているか確認。
