@@ -295,6 +295,10 @@ def convert_slide(s: dict, override: dict, asset_base: Path, output_dir: Path) -
         out["assets"] = {"image": os.path.relpath(asset_base / s["asset_ref"], output_dir)}
         meta["asset_ref"] = s["asset_ref"]
 
+    if up_type == "section":
+        # 上流の renderSection は title / subtitle しか描画しないため、それ以外は FAIL させる
+        if bullets or s.get("source_refs") or s.get("notes") or s.get("asset_ref"):
+            raise UnsupportedContent(f"{sid}: 中扉（section）は本文・出典・注記・画像を表示できません")
     if up_type == "title":
         # 上流の表紙は title / subtitle / footer しか表示しないため、本文は footer 行として表示する
         if s.get("source_refs") or (bullets and s.get("notes")) or s.get("asset_ref"):
@@ -361,7 +365,7 @@ def main() -> int:
     try:
         content, design = load_and_validate(a.content, a.design)
         text = canonical_json(convert(content, design, a.content.parent, a.output.parent))
-    except (ValueError, OSError) as exc:
+    except (ValueError, OSError, validate.yaml.YAMLError) as exc:
         print(f"FAIL: {exc}", file=sys.stderr)
         return 1
     a.output.parent.mkdir(parents=True, exist_ok=True)

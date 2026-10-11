@@ -130,6 +130,7 @@ class AdapterTests(unittest.TestCase):
             "未知のschema": lambda c, d: c.__setitem__("schema_version", "9.9"),
             "asset_fit": lambda c, d: d["overrides"]["s003"].__setitem__("asset_fit", "cover"),
             "override notes": lambda c, d: d["overrides"]["s003"].__setitem__("notes", "メモ"),
+            "中扉に本文": lambda c, d: c["slides"][5].update(type="section"),
         }
         for name, mutate in cases.items():
             with self.subTest(name):
@@ -157,6 +158,22 @@ class AdapterTests(unittest.TestCase):
                 self.assertEqual(r.returncode, 0, r.stderr)
                 outs.append(out.read_bytes())
             self.assertEqual(outs[0], outs[1])
+
+    def test_cli_rejects_broken_yaml_without_traceback(self):
+        with tempfile.TemporaryDirectory() as d:
+            broken = Path(d) / "content.yaml"
+            broken.write_text("slides: [unclosed\n", encoding="utf-8")
+            r = subprocess.run([sys.executable, str(ROOT / "scripts/adapter.py"), "--content", str(broken),
+                                "--design", str(DESIGN), "--output", str(Path(d) / "o.json")], capture_output=True, text=True)
+            self.assertEqual(r.returncode, 1)
+            self.assertIn("FAIL", r.stderr)
+            self.assertNotIn("Traceback", r.stderr)
+
+    def test_section_with_title_only_is_supported(self):
+        def to_section(c, _):
+            c["slides"][5] = {"id": "s006", "type": "section", "title": "付録", "takeaway": "補足資料"}
+        s006 = self.convert(to_section)["slides"][5]
+        self.assertEqual((s006["type"], s006["subtitle"]), ("section", "補足資料"))
 
     def test_key_order_does_not_change_output(self):
         reordered = json.loads(json.dumps(self.content, sort_keys=True))
