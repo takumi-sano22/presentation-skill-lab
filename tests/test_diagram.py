@@ -84,6 +84,23 @@ class LayoutTests(unittest.TestCase):
             for nid, box in b.items():
                 self.assertEqual(gb.intersects(box), nid in g["members"], (g["name"], nid))
 
+    def test_parallel_and_bidirectional_edges_do_not_overlap(self):
+        d = {"nodes": [{"id": "a", "label": "A"}, {"id": "b", "label": "B"}],
+             "edges": [{"from": "a", "to": "b", "label": "要求", "kind": "data"},
+                       {"from": "b", "to": "a", "label": "応答", "kind": "data"},
+                       {"from": "a", "to": "b", "label": "監視", "kind": "control"}]}
+        r = diagram.layout(d)
+        paths = [tuple(map(tuple, e["points"])) for e in r["edges"]]
+        self.assertEqual(len({frozenset(p) for p in paths}), 3)  # 3本とも異なる経路
+        b = boxes(r)
+        for e in r["edges"]:  # ずらしても端点はノード境界の範囲内
+            for (x, y), nid in ((e["points"][0], e["from"]), (e["points"][-1], e["to"])):
+                self.assertTrue(b[nid].y < y < b[nid].y + b[nid].h)
+
+    def test_self_loop_fails_explicitly(self):
+        with self.assertRaises(diagram.LayoutError):
+            diagram.layout({"nodes": [{"id": "a", "label": "A"}], "edges": [{"from": "a", "to": "a"}]})
+
     def test_legend_lists_edge_kinds_in_japanese(self):
         r = diagram.layout(SAMPLE)
         self.assertEqual([(i["label"], i["dash"]) for i in r["legend"]], [("データ", "solid"), ("制御", "dash")])
@@ -124,12 +141,12 @@ class PptxDiagramCheckTests(unittest.TestCase):
 
     def test_correct_relationship_passes(self):
         ok = [("node:a", 1, 1, 1, 0.5, "", False), ("node:b", 3, 1, 1, 0.5, "", False),
-              ("edge:a->b#0", 2, 1.25, 1, 0, "", True)]
+              ("edge:0:a->b#0", 2, 1.25, 1, 0, "", True)]
         self.assertEqual(self.check(ok), [])
 
     def test_wrong_endpoint_and_missing_arrow_are_detected(self):
         ng = [("node:a", 1, 1, 1, 0.5, "", False), ("node:b", 3, 1, 1, 0.5, "", False),
-              ("edge:a->b#0", 2, 1.25, 0.5, 0, "", False)]  # 終点が b に届かず矢印もない
+              ("edge:0:a->b#0", 2, 1.25, 0.5, 0, "", False)]  # 終点が b に届かず矢印もない
         errors = self.check(ng)
         self.assertTrue(any("終点" in e and "境界" in e for e in errors))
         self.assertTrue(any("矢印" in e for e in errors))
@@ -137,17 +154,26 @@ class PptxDiagramCheckTests(unittest.TestCase):
     def test_reversed_drawing_is_detected(self):
         # flipH で描いた線は始点と終点が入れ替わる（b→a の向きに見える）
         ng = [("node:a", 1, 1, 1, 0.5, "", False), ("node:b", 3, 1, 1, 0.5, "", False),
-              ("edge:a->b#0", 2, 1.25, 1, 0, ' flipH="1"', True)]
+              ("edge:0:a->b#0", 2, 1.25, 1, 0, ' flipH="1"', True)]
         self.assertTrue(any("始点" in e for e in self.check(ng)))
+
+    def test_missing_parallel_edge_is_detected(self):
+        content = {"slides": [{"id": "s1", "diagram": {"nodes": [{"id": "a", "label": "A"}, {"id": "b", "label": "B"}],
+                                                       "edges": [{"from": "a", "to": "b"}, {"from": "a", "to": "b"}]}}]}
+        shapes = [("node:a", 1, 1, 1, 0.5, "", False), ("node:b", 3, 1, 1, 0.5, "", False),
+                  ("edge:0:a->b#0", 2, 1.2, 1, 0, "", True)]  # 2本目が描かれていない
+        with tempfile.TemporaryDirectory() as d:
+            errors = build.check_diagram_in_pptx(content, self.outline, fake_diagram_pptx(Path(d) / "x.pptx", shapes))
+        self.assertEqual(errors, ["s1: 辺 1:a->b の線がありません"])
 
     def test_unknown_and_missing_shapes_and_overlap_are_detected(self):
         ng = [("node:a", 1, 1, 1, 0.5, "", False), ("node:x", 1.5, 1, 1, 0.5, "", False),
-              ("edge:a->x#0", 2, 1.25, 1, 0, "", True)]
+              ("edge:0:a->x#0", 2, 1.25, 1, 0, "", True)]
         errors = self.check(ng)
         self.assertTrue(any("ノード b の図形がありません" in e for e in errors))
         self.assertTrue(any("content に無いノード図形 node:x" in e for e in errors))
         self.assertTrue(any("content に無い辺" in e for e in errors))
-        self.assertTrue(any("辺 a->b の線がありません" in e for e in errors))
+        self.assertTrue(any("辺 0:a->b の線がありません" in e for e in errors))
 
 
 if __name__ == "__main__":

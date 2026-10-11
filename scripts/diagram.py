@@ -21,6 +21,9 @@ DESC_FONT_PT = 9
 GROUP_PAD = 0.12
 GROUP_LABEL_H = 0.24
 LEGEND_H = 0.28
+# 同じノード間の並行辺の間隔と上限（ノード高さの中に収める）
+PARALLEL_GAP = 0.16
+PARALLEL_MAX = 3
 # 辺の種類 → 凡例の和文ラベルと線種（意味の違いを色だけに頼らず線種でも示す。docs/design-rules.md 4）
 EDGE_KINDS = {
     "data": ("データ", "solid"),
@@ -104,6 +107,8 @@ def layout(diagram: dict) -> dict:
     nodes = diagram["nodes"]
     edges = diagram.get("edges", [])
     node_ids = [n["id"] for n in nodes]
+    if any(e["from"] == e["to"] for e in edges):
+        raise LayoutError("自己参照の辺は未対応です")
     group_of = {n["id"]: n.get("group", "") for n in nodes}
     group_names = list(dict.fromkeys(g for g in group_of.values() if g))
     kinds = list(dict.fromkeys(e.get("kind", "data") for e in edges))
@@ -172,15 +177,28 @@ def layout(diagram: dict) -> dict:
             else:
                 boxes[v] = Box(x, cy - node_h / 2, node_w, node_h)
 
+    # 同じノード間の複数の辺（双方向を含む）は、重ならないよう上下にずらす
+    pair_count: dict[frozenset, int] = {}
+    for e in edges:
+        pair_count[frozenset((e["from"], e["to"]))] = pair_count.get(frozenset((e["from"], e["to"])), 0) + 1
+    if max(pair_count.values(), default=0) > PARALLEL_MAX:
+        raise LayoutError(f"同じノード間の辺が {PARALLEL_MAX} 本を超えます")
+    pair_seen: dict[frozenset, int] = {}
+
     # 辺: 始点ノードの右辺中央 → 中継点 → 終点ノードの左辺中央（右→左の辺は逆向きに描く）
     edge_shapes = []
-    for e, chain in zip(edges, chains):
+    for i, (e, chain) in enumerate(zip(edges, chains)):
         start, end = boxes[chain[0]], boxes[chain[-1]]
-        path = [(start.x + start.w, start.cy)] + [points[d] for d in chain[1:-1]] + [(end.x, end.cy)]
+        pair = frozenset((e["from"], e["to"]))
+        k = pair_seen.get(pair, 0)
+        pair_seen[pair] = k + 1
+        dy = (k - (pair_count[pair] - 1) / 2) * PARALLEL_GAP
+        path = ([(start.x + start.w, start.cy + dy)] + [(px, py + dy) for px, py in (points[d] for d in chain[1:-1])] +
+                [(end.x, end.cy + dy)])
         reversed_ = chain[0] != e["from"]
         if reversed_:
             path = list(reversed(path))
-        edge_shapes.append({"from": e["from"], "to": e["to"], "kind": e.get("kind", "data"),
+        edge_shapes.append({"index": i, "from": e["from"], "to": e["to"], "kind": e.get("kind", "data"),
                             "label": e.get("label", ""), "points": [[round(x, 4), round(y, 4)] for x, y in path]})
 
     groups = []

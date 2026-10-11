@@ -112,10 +112,10 @@ class RenderContractTests(unittest.TestCase):
             self.assertIn("<a:prstGeom", block)
         edges = [n for n in shapes if n.startswith("edge:")]
         self.assertEqual({n.split("#")[0] for n in edges},
-                         {f"edge:{e['from']}->{e['to']}" for e in self.content["slides"][2]["diagram"]["edges"]})
+                         {f"edge:{i}:{e['from']}->{e['to']}" for i, e in enumerate(self.content["slides"][2]["diagram"]["edges"])})
         # 制御の辺は破線、データの辺は実線（線種で意味を示す）
-        self.assertIn('prstDash val="dash"', shapes["edge:agent->policy#0"])
-        self.assertNotIn('prstDash val="dash"', shapes["edge:user->agent#0"])
+        self.assertIn('prstDash val="dash"', shapes["edge:1:agent->policy#0"])
+        self.assertNotIn('prstDash val="dash"', shapes["edge:0:user->agent#0"])
 
     def test_dark_theme_uses_dark_surfaces(self):
         _, dark = adapter.load_and_validate(ROOT / "examples/technical-architecture/content.yaml",

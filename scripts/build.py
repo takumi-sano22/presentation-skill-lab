@@ -322,7 +322,7 @@ def check_diagram_in_pptx(content: dict, outline: dict, pptx: Path) -> list[str]
     """ネイティブ図の表示が関係の意味と一致するかを PPTX 実体の座標で検査する。
 
     - content の全ノードが node:<id> 図形として1つずつあり、互いに重ならない
-    - 全辺が edge:<from>-><to>#i の線分列として連続し、始点が from の境界、終点が to の境界にあり、終点に矢印がある
+    - 全辺が edge:<辺番号>:<from>-><to>#i の線分列として連続し、始点が from の境界、終点が to の境界にあり、終点に矢印がある
     - content に無いノード・辺の図形がない（接続先不明 0）
     """
     errors = []
@@ -341,15 +341,15 @@ def check_diagram_in_pptx(content: dict, outline: dict, pptx: Path) -> list[str]
                 if not (A["x"] + A["w"] <= B["x"] or B["x"] + B["w"] <= A["x"] or
                         A["y"] + A["h"] <= B["y"] or B["y"] + B["h"] <= A["y"]):
                     errors.append(f"{sid}: ノード {a} と {b} が重なります")
-        expected_edges = {f"{e['from']}->{e['to']}" for e in d.get("edges", [])}
+        expected_edges = {f"{i}:{e['from']}->{e['to']}" for i, e in enumerate(d.get("edges", []))}
         known_nodes = {f"node:{n['id']}" for n in d["nodes"]}
         for name in shapes:
             if name.startswith("node:") and name not in known_nodes:
                 errors.append(f"{sid}: content に無いノード図形 {name}")
             if name.startswith("edge:") and name[5:].split("#")[0] not in expected_edges:
                 errors.append(f"{sid}: content に無い辺 {name}")
-        for e in d.get("edges", []):
-            key = f"{e['from']}->{e['to']}"
+        for i, e in enumerate(d.get("edges", [])):
+            key = f"{i}:{e['from']}->{e['to']}"
             segs = sorted(((int(n.split("#")[1]), v) for n, v in shapes.items() if n.startswith(f"edge:{key}#")))
             if not segs:
                 errors.append(f"{sid}: 辺 {key} の線がありません")

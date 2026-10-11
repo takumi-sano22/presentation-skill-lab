@@ -92,7 +92,7 @@ const NODE_SHAPES = {
 };
 
 // psl.diagram_layout（scripts/diagram.py の配置結果）をネイティブ図形・線・ラベルとして描く。
-// 名前（objectName）に node:/edge:/group: を付け、ビルド検査が PPTX 実体から関係を復元できるようにする
+// 名前（objectName）に node:/edge:<辺番号>:/group: を付け、ビルド検査が PPTX 実体から関係（並行辺の本数を含む）を復元できるようにする
 function drawDiagram(pptx, pSlide, lay, preset) {
   const font = preset.font_body;
   for (const g of lay.groups || []) {
@@ -113,7 +113,7 @@ function drawDiagram(pptx, pSlide, lay, preset) {
       // pptxgenjs の線は (x,y)→(x+w,y+h)。逆向きの線分は flip で表し、矢印は最後の線分の終点だけに付ける
       pSlide.addShape(pptx.ShapeType.line, {
         x: Math.min(x1, x2), y: Math.min(y1, y2), w: Math.abs(x2 - x1), h: Math.abs(y2 - y1),
-        flipH: x2 < x1, flipV: y2 < y1, objectName: `edge:${e.from}->${e.to}#${i}`,
+        flipH: x2 < x1, flipV: y2 < y1, objectName: `edge:${e.index}:${e.from}->${e.to}#${i}`,
         line: { color: preset.text_muted, width: 1.25, dashType: e.dash,
           endArrowType: i === pts.length - 2 ? 'triangle' : undefined },
       });
@@ -121,7 +121,7 @@ function drawDiagram(pptx, pSlide, lay, preset) {
     if (e.label_box) {
       const b = e.label_box;
       pSlide.addText(e.label, {
-        x: b.x, y: b.y, w: b.w, h: b.h, objectName: `edge-label:${e.from}->${e.to}`,
+        x: b.x, y: b.y, w: b.w, h: b.h, objectName: `edge-label:${e.index}:${e.from}->${e.to}`,
         fontFace: font, fontSize: lay.edge_font_pt, color: preset.text, align: 'center', valign: 'middle',
         fill: { color: preset.bg }, margin: 0,
       });
