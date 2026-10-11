@@ -28,6 +28,7 @@ import adapter  # noqa: E402
 import assets  # noqa: E402
 import diagram as diagram_layout  # noqa: E402
 import er as er_layout  # noqa: E402
+import polish  # noqa: E402
 import qa  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -790,17 +791,20 @@ def check_japanese(content: dict, page_texts: list[str]) -> tuple[list[str], lis
 
 
 # design のフォント名 → 描画環境で解決されるべきファミリ（docker/fonts.conf の別名と一致させる）
-FONT_ALIASES = {"Noto Sans JP": "Noto Sans CJK JP"}
+# design のフォント名 → 描画環境（Docker の fontconfig 別名）で解決されるファミリ。docker/fonts.conf と対応
+FONT_ALIASES = {"Noto Sans JP": "Noto Sans CJK JP", "Consolas": "Noto Sans Mono CJK JP"}
 
 
-def resolve_theme_fonts(theme: dict) -> tuple[dict, list[str]]:
+def resolve_theme_fonts(theme: dict, uses_code: bool = False) -> tuple[dict, list[str]]:
     """theme の heading/body が描画環境で要求どおりのファミリに解決されるかを fc-match で確かめる。
 
     存在しないフォントは LibreOffice が黙って代替し、字幅の違いでレイアウトが変わるため FAIL にする。
     """
     resolved, errors = {}, []
-    for role in ("heading", "body"):
-        requested = theme["fonts"][role]
+    # code（等幅。design v0.2）は等幅列を使うデッキだけ検査する（既定は polish.DEFAULT_CODE_FONT）
+    roles = ("heading", "body") + (("code",) if uses_code else ())
+    for role in roles:
+        requested = theme["fonts"].get(role, polish.DEFAULT_CODE_FONT)
         families = [f.strip() for f in run(["fc-match", "-f", "%{family}", requested]).split(",")]
         expected = FONT_ALIASES.get(requested, requested)
         resolved[role] = {"requested": requested, "resolved": families}
@@ -866,7 +870,8 @@ def build(content_path: Path, design_path: Path, out: Path) -> dict:
     outline_path.write_text(outline_text, encoding="utf-8")
 
     # 2. テーマ書体の実在確認（代替フォントでの描画を成功扱いにしない）
-    theme_fonts, theme_font_errors = resolve_theme_fonts(design["theme"])
+    uses_code = any(o.get("monospace_columns") for o in design.get("overrides", {}).values())
+    theme_fonts, theme_font_errors = resolve_theme_fonts(design["theme"], uses_code)
     if theme_font_errors:
         raise BuildError("\n".join(theme_font_errors))
 
@@ -874,6 +879,8 @@ def build(content_path: Path, design_path: Path, out: Path) -> dict:
     pptx = out / "deck.pptx"
     render_pptx(outline_path, pptx)
     fixed_fallbacks = fix_svg_fallbacks(pptx)
+    # 装飾の仕上げ（#22）。内容は変えず見せ方だけ。以降の内容保持・幾何・編集性の検査は仕上げ後の PPTX に対して行う
+    polished = polish.apply(pptx, content, outline, design)
 
     # 4. PDF / 5. PNG
     pdf = convert_pdf(pptx, out)
@@ -934,6 +941,7 @@ def build(content_path: Path, design_path: Path, out: Path) -> dict:
                     "license": asset_manifest[a["asset_ref"]]["license"],
                     "origin": asset_manifest[a["asset_ref"]]["origin"]["type"]} for a in used_assets],
         "svg_png_fallbacks_fixed": fixed_fallbacks,
+        "polish": polished,
         "fallbacks": {s["psl"]["slide_id"]: s["psl"]["fallback"] for s in outline["slides"] if s["psl"].get("fallback")},
         "checks": {
             "pdf_pages_match": pages == len(slide_ids),

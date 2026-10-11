@@ -605,12 +605,26 @@ def contrast_ratio(a: str, b: str) -> float:
     return (la + 0.05) / (lb + 0.05)
 
 
+# 暗色テーマの見出し帯の色（scripts/render.js の DARK_BAND_MIX と同じ導出）。帯の上に見出しと要点が載る
+DARK_BAND_MIX = 0.12
+
+
+def mix(a: str, b: str, ratio: float) -> str:
+    pa = [int(a.lstrip("#")[i:i + 2], 16) for i in (0, 2, 4)]
+    pb = [int(b.lstrip("#")[i:i + 2], 16) for i in (0, 2, 4)]
+    return "#" + "".join(f"{round(x + (y - x) * ratio):02X}" for x, y in zip(pa, pb))
+
+
 def check_theme_contrast(theme: dict) -> None:
     """テーマ色の組み合わせが最小コントラスト比を満たすか。満たさなければ DesignError。"""
     colors = dict(theme["colors"])
     colors.setdefault("muted", colors["foreground"])  # render.js と同じ既定
     failures = []
-    for fg, bg, minimum, usage in CONTRAST_RULES:
+    rules = list(CONTRAST_RULES)
+    if relative_luminance(colors["background"]) < relative_luminance(colors["foreground"]):
+        colors["band"] = mix(colors["background"], colors["foreground"], DARK_BAND_MIX)
+        rules += [("foreground", "band", 4.5, "暗色テーマの見出し帯の見出し"), ("muted", "band", 4.5, "暗色テーマの見出し帯の要点")]
+    for fg, bg, minimum, usage in rules:
         a, b = colors.get(fg, fg), colors.get(bg, bg)
         ratio = contrast_ratio(a, b)
         if ratio < minimum:

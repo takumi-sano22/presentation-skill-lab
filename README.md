@@ -2,7 +2,7 @@
 
 Claude Code と ChatGPT の双方から、**中身とデザインを分離**して技術系スライドを生成するためのスキル開発リポジトリ。
 
-> **状態: Phase 1 着手中。** 上流レンダラ（`vendor/presentation-skill` v0.14.0）の固定と描画環境の doctor まで実装済みです。`content.yaml`/`design.yaml` → `outline.json` の adapter と、PPTX/PDF/PNG/静的プレビューを出す共通ビルド CLI（`scripts/build`）まで実装済みです。日本語テーマ（technical-light / technical-dark）・ネイティブ技術図・画像アセット管理・自動 QA・技術資料3種の視覚ベンチマークまで実装済みです。ChatGPT 側の実機検証（#10）とリリース判定（#11）は未実施です。`scripts/validate.py` は共通データ契約と参照の検査のみです。
+> **状態: Phase 1 着手中。** 上流レンダラ（`vendor/presentation-skill` v0.14.0）の固定と描画環境の doctor まで実装済みです。`content.yaml`/`design.yaml` → `outline.json` の adapter と、PPTX/PDF/PNG/静的プレビューを出す共通ビルド CLI（`scripts/build`）まで実装済みです。日本語テーマ（technical-light / technical-dark）・ネイティブ技術図・ER 図（ネイティブ図形、高密度のみ SVG 例外）・画像アセット管理・自動 QA・技術資料3種の視覚ベンチマーク・描画後の装飾の仕上げまで実装済みです。Windows 版 PowerPoint での実機検証（#10）とリリース判定（#11）は未実施です。`scripts/validate.py` は共通データ契約と参照の検査のみです。
 
 ## 確定事項
 
@@ -124,6 +124,10 @@ scripts/build \
 - `theme.name`（technical-light → 上流 arctic-minimal、technical-dark → midnight-neon を基底）と、`theme.fonts`・`theme.colors` のトークンを `scripts/render.js` が上流プリセットへ注入して描画する（上流コードは改変しない）。
 - フォント名は design の値（例: Noto Sans JP）を PPTX の欧文・和文の両方に書き、描画環境では fontconfig の別名で Noto Sans CJK JP に解決する。
 - 配色コントラスト（本文 4.5:1 等）を満たさないテーマは FAIL。タイトル長・泣き別れは WARN。規約と例外・出典は [`docs/design-rules.md`](docs/design-rules.md)「日本語テーマ規約」。
+
+## 描画後の装飾の仕上げ（#22）
+
+`scripts/polish.py` が上流レンダラの出力を、内容（文字列・数値・表セル）を変えずに調整する: 1系列棒グラフの単色化、表の列幅を文字量で配分・行の少ない表の行を広げる（版面 55% 目安）、design v0.2 の `monospace_columns` で SQL・コード列を等幅に、タイトルの泣き別れを語の切れ目の明示改行で解消。図のノード名・辺ラベルは配置計算が禁則と語の切れ目で改行位置を決める。暗色テーマの見出し帯は背景から区別できる色にする。適用内容は manifest `polish` に記録し、内容保持・幾何・編集性の検査は仕上げ後の PPTX に対して行う。
 
 ## ネイティブ技術図（architecture / flow）
 

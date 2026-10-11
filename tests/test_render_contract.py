@@ -141,8 +141,10 @@ class RenderContractTests(unittest.TestCase):
         self.assertTrue({"0F172A", "E2E8F0", "0284C7"} <= colors, colors)
         # midnight-neon 固有の色（アクセント・面・罫線）が残っていない
         self.assertFalse({"22D3EE", "F43F5E", "101A33", "1E293B"} & colors, colors)
-        # 使われる色はすべて design 由来（背景・前景・アクセント・補助、面と罫線は背景/前景の混色、表ヘッダの白）
-        allowed = {"0F172A", "E2E8F0", "0284C7", "94A3B8", "171F32", "353D4E", "FFFFFF"}
+        # 使われる色はすべて design 由来（背景・前景・アクセント・補助、面と罫線と見出し帯は背景/前景の混色、表ヘッダの白）
+        # 283042 = 見出し帯（背景を前景へ 12% 寄せた色。#22 で背景と同色だった帯を見えるようにした）
+        allowed = {"0F172A", "E2E8F0", "0284C7", "94A3B8", "171F32", "353D4E", "FFFFFF", "283042"}
+        self.assertIn(adapter.mix("#0F172A", "#E2E8F0", adapter.DARK_BAND_MIX).lstrip("#"), colors)
         self.assertTrue(colors <= allowed, colors - allowed)
 
 

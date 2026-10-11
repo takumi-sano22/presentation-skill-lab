@@ -1,10 +1,12 @@
-schema_version: '0.1'
+schema_version: '0.2'
 deck_id: bench-dense-tech
 theme:
   name: technical-light
   fonts:
     heading: Noto Sans JP
     body: Noto Sans JP
+    # SQL の列の欧文書体（v0.2）。描画環境では Noto Sans Mono CJK JP に解決する
+    code: Consolas
   colors:
     background: '#F8FAFC'
     foreground: '#14213D'
@@ -17,3 +19,5 @@ overrides:
     layout: er
   d303:
     layout: table
+    # SQL の列（0 始まりで 1 列目）を等幅で表示する
+    monospace_columns: [1]
