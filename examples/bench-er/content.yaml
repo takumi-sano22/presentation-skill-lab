@@ -1,0 +1,160 @@
+# ER 図（ADR-0002 / #19）の検証用。架空の受注データモデル（合成データ）
+schema_version: '0.2'
+deck_id: bench-er
+metadata:
+  title: 架空の受注データモデルのER図
+  audience: データエンジニア
+  objective: エンティティ・キー・関係の多重度を共有する
+  language: ja-JP
+  classification: public
+  synthetic: true
+  content_locked: true
+slides:
+  - id: e401
+    type: cover
+    title: 受注データモデルのER図
+    takeaway: 架空の受注業務を題材にしたデータモデル
+  - id: e402
+    type: er
+    title: 受注明細は受注と商品を結ぶ
+    takeaway: 受注明細は受注IDと明細番号の複合主キーを持つ
+    diagram:
+      nodes:
+        - id: item
+          label: 受注明細
+          attributes:
+            - {name: 受注ID, type: INT, pk: true, fk: orders.受注ID}
+            - {name: 明細番号, type: INT, pk: true}
+            - {name: 商品ID, type: INT, fk: product.商品ID, nullable: false}
+            - {name: 数量, type: INT, nullable: false}
+        - id: orders
+          label: 受注
+          attributes:
+            - {name: 受注ID, type: INT, pk: true}
+            - {name: 顧客ID, type: INT, fk: customer.顧客ID, nullable: false}
+            - {name: 配送先ID, type: INT, fk: address.配送先ID, nullable: true}
+            - {name: 受注日, type: DATE}
+        - id: product
+          label: 商品
+          attributes:
+            - {name: 商品ID, type: INT, pk: true}
+            - {name: 名称, type: VARCHAR(80)}
+            - {name: 単価, type: 'DECIMAL(10,2)'}
+        - id: customer
+          label: 顧客
+          attributes:
+            - {name: 顧客ID, type: INT, pk: true}
+            - {name: 氏名, type: VARCHAR(80), nullable: false}
+            - {name: 地域, type: VARCHAR(20), nullable: true}
+        - id: address
+          label: 配送先
+          attributes:
+            - {name: 配送先ID, type: INT, pk: true}
+            - {name: 住所, type: VARCHAR(200)}
+      edges:
+        - {id: r-item-orders, from: item, to: orders, label: 明細, kind: relationship, cardinality: {from: 1..N, to: '1'}}
+        - {id: r-item-product, from: item, to: product, label: 商品, kind: relationship, cardinality: {from: 0..N, to: '1'}}
+        - {id: r-orders-customer, from: orders, to: customer, label: 発注者, kind: relationship, cardinality: {from: 0..N, to: '1'}}
+        - {id: r-orders-address, from: orders, to: address, label: 配送先（任意）, kind: relationship, cardinality: {from: 0..N, to: 0..1}}
+    notes: 合成データの架空モデル。多重度は from（外部キーを持つ側）/ to（参照される側）の端に表示
+  - id: e403
+    type: er
+    title: 在庫と出荷を含む全体モデルは密度が高い
+    takeaway: 12エンティティのため図全体をSVGで表示する例外の検証
+    diagram:
+      nodes:
+        - id: customer
+          label: 顧客
+          attributes:
+            - {name: 顧客ID, type: INT, pk: true}
+            - {name: 氏名, type: VARCHAR(80)}
+            - {name: 地域ID, type: INT, fk: region.地域ID}
+            - {name: 登録日, type: DATE}
+        - id: region
+          label: 地域
+          attributes:
+            - {name: 地域ID, type: INT, pk: true}
+            - {name: 地域名, type: VARCHAR(40)}
+        - id: orders
+          label: 受注
+          attributes:
+            - {name: 受注ID, type: INT, pk: true}
+            - {name: 顧客ID, type: INT, fk: customer.顧客ID}
+            - {name: 担当者ID, type: INT, fk: staff.担当者ID, nullable: true}
+            - {name: 受注日, type: DATE}
+            - {name: 状態, type: VARCHAR(10)}
+        - id: item
+          label: 受注明細
+          attributes:
+            - {name: 受注ID, type: INT, pk: true, fk: orders.受注ID}
+            - {name: 明細番号, type: INT, pk: true}
+            - {name: 商品ID, type: INT, fk: product.商品ID}
+            - {name: 数量, type: INT}
+            - {name: 単価, type: 'DECIMAL(10,2)'}
+        - id: product
+          label: 商品
+          attributes:
+            - {name: 商品ID, type: INT, pk: true}
+            - {name: 分類ID, type: INT, fk: category.分類ID}
+            - {name: 名称, type: VARCHAR(80)}
+            - {name: 標準単価, type: 'DECIMAL(10,2)'}
+        - id: category
+          label: 商品分類
+          attributes:
+            - {name: 分類ID, type: INT, pk: true}
+            - {name: 分類名, type: VARCHAR(40)}
+        - id: stock
+          label: 在庫
+          attributes:
+            - {name: 倉庫ID, type: INT, pk: true, fk: warehouse.倉庫ID}
+            - {name: 商品ID, type: INT, pk: true, fk: product.商品ID}
+            - {name: 在庫数, type: INT}
+            - {name: 更新日時, type: TIMESTAMP}
+        - id: warehouse
+          label: 倉庫
+          attributes:
+            - {name: 倉庫ID, type: INT, pk: true}
+            - {name: 倉庫名, type: VARCHAR(40)}
+            - {name: 地域ID, type: INT, fk: region.地域ID}
+        - id: shipment
+          label: 出荷
+          attributes:
+            - {name: 出荷ID, type: INT, pk: true}
+            - {name: 受注ID, type: INT, fk: orders.受注ID}
+            - {name: 倉庫ID, type: INT, fk: warehouse.倉庫ID}
+            - {name: 出荷日, type: DATE, nullable: true}
+        - id: shipitem
+          label: 出荷明細
+          attributes:
+            - {name: 出荷ID, type: INT, pk: true, fk: shipment.出荷ID}
+            - {name: 明細番号, type: INT, pk: true}
+            - {name: 商品ID, type: INT, fk: product.商品ID}
+            - {name: 数量, type: INT}
+        - id: staff
+          label: 担当者
+          attributes:
+            - {name: 担当者ID, type: INT, pk: true}
+            - {name: 氏名, type: VARCHAR(80)}
+        - id: invoice
+          label: 請求
+          attributes:
+            - {name: 請求ID, type: INT, pk: true}
+            - {name: 受注ID, type: INT, fk: orders.受注ID}
+            - {name: 請求額, type: 'DECIMAL(12,2)'}
+            - {name: 支払期日, type: DATE}
+      edges:
+        - {from: customer, to: region, kind: relationship, cardinality: {from: 0..N, to: '1'}}
+        - {from: orders, to: customer, kind: relationship, cardinality: {from: 0..N, to: '1'}}
+        - {from: orders, to: staff, kind: relationship, cardinality: {from: 0..N, to: 0..1}}
+        - {from: item, to: orders, kind: relationship, cardinality: {from: 1..N, to: '1'}}
+        - {from: item, to: product, kind: relationship, cardinality: {from: 0..N, to: '1'}}
+        - {from: product, to: category, kind: relationship, cardinality: {from: 0..N, to: '1'}}
+        - {from: stock, to: warehouse, kind: relationship, cardinality: {from: 0..N, to: '1'}}
+        - {from: stock, to: product, kind: relationship, cardinality: {from: 0..N, to: '1'}}
+        - {from: warehouse, to: region, kind: relationship, cardinality: {from: 0..N, to: '1'}}
+        - {from: shipment, to: orders, kind: relationship, cardinality: {from: 0..N, to: '1'}}
+        - {from: shipment, to: warehouse, kind: relationship, cardinality: {from: 0..N, to: '1'}}
+        - {from: shipitem, to: shipment, kind: relationship, cardinality: {from: 1..N, to: '1'}}
+        - {from: shipitem, to: product, kind: relationship, cardinality: {from: 0..N, to: '1'}}
+        - {from: invoice, to: orders, kind: relationship, cardinality: {from: 0..N, to: '1'}}
+    notes: 合成データの架空モデル。図はcontent.yamlの構造から生成したSVG

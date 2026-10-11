@@ -53,6 +53,8 @@ def cross_validate(content: dict, design: dict, content_dir: Path) -> list[str]:
                     errors.append(f"{sid}: edge の接続先がありません {edge}")
                 if edge.get("from") == edge.get("to"):
                     errors.append(f"{sid}: 自己接続は初期仕様で未対応")
+        if diagram:
+            errors += er_contract_errors(content.get("schema_version"), slide)
         table = slide.get("table", {})
         if table:
             headers = table.get("headers", [])
@@ -72,6 +74,46 @@ def cross_validate(content: dict, design: dict, content_dir: Path) -> list[str]:
                 errors.append(f"{sid}: asset_ref が content ディレクトリ外を参照します")
             elif not path.is_file():
                 errors.append(f"{sid}: アセットが存在しません {asset}")
+    return errors
+
+
+def er_contract_errors(version: str | None, slide: dict) -> list[str]:
+    """v0.2 の ER 項目（属性・PK/FK・多重度・関係 ID）の整合性。JSON Schema で表せない相互参照を検査する。
+
+    - v0.2 の項目は schema_version: '0.2' でだけ使える（0.1 の入力は従来どおり）
+    - 属性は type: er のスライドだけ（他の図では表示先がなく黙って捨てられるため）
+    - fk は同じ図の <エンティティID>.<属性名> を指し、その向き（子 → 親）の関係が edges にあること（関係の反転を検出）
+    """
+    sid = slide.get("id", "unknown")
+    diagram = slide["diagram"]
+    nodes = [n for n in diagram.get("nodes", []) if isinstance(n, dict)]
+    edges = [e for e in diagram.get("edges", []) if isinstance(e, dict)]
+    uses_v02 = any("attributes" in n for n in nodes) or any("id" in e or "cardinality" in e for e in edges)
+    if not uses_v02:
+        return []
+    errors = []
+    if version != "0.2":
+        errors.append(f"{sid}: 属性・多重度・関係 ID は schema_version: '0.2' で使えます（現在 {version}）")
+    if slide.get("type") != "er":
+        errors.append(f"{sid}: 属性・多重度は type: er のスライドだけで使えます")
+    attrs = {n.get("id"): [a.get("name") for a in n.get("attributes", [])] for n in nodes}
+    for nid, names in attrs.items():
+        if len(names) != len(set(names)):
+            errors.append(f"{sid}: エンティティ {nid} の属性名が重複しています")
+    pairs = {(e.get("from"), e.get("to")) for e in edges}
+    for n in nodes:
+        for a in n.get("attributes", []):
+            if not a.get("fk"):
+                continue
+            target, _, column = a["fk"].partition(".")
+            if column not in attrs.get(target, []):
+                errors.append(f"{sid}: {n.get('id')}.{a.get('name')} の fk {a['fk']} の参照先がありません")
+            elif (n.get("id"), target) not in pairs:
+                errors.append(f"{sid}: {n.get('id')}.{a.get('name')} は {target} を参照しますが、"
+                              f"関係 {n.get('id')} → {target}（from が外部キーを持つ側）がありません")
+    ids = [e["id"] for e in edges if "id" in e]
+    if len(ids) != len(set(ids)):
+        errors.append(f"{sid}: 関係 ID が重複しています")
     return errors
 
 

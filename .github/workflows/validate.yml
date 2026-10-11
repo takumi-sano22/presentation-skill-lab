@@ -33,6 +33,12 @@ jobs:
           --content examples/gate4-chatgpt-origin/content.yaml
           --design examples/gate4-chatgpt-origin/design.yaml
           --public-repo-check
+      - name: Validate ER example (schema v0.2)
+        run: >-
+          python scripts/validate.py
+          --content examples/bench-er/content.yaml
+          --design examples/bench-er/design.yaml
+          --public-repo-check
       - name: Validate asset example
         run: >-
           python scripts/validate.py
@@ -116,6 +122,26 @@ jobs:
           print("content_sha256", m["inputs"]["content"]["sha256"], "design_sha256", m["inputs"]["design"]["sha256"])
           print("PASS Gate4-B: ChatGPT content unchanged, Claude design, 6-slide PPTX/PDF/PNG, QA no critical errors")
           PY
+      - name: Build ER example (native ER + SVG exception)
+        run: >-
+          scripts/build
+          --content examples/bench-er/content.yaml
+          --design examples/bench-er/design.yaml
+          --out build/sample-er
+      - name: ER example - native objects and recorded SVG exception
+        run: |
+          python3 - <<'PY'
+          import json, zipfile
+          from pathlib import Path
+          m = json.loads(Path("build/sample-er/manifest.json").read_text())
+          assert not m["checks"]["diagram_errors"] and not m["checks"]["qa"]["errors"], m["checks"]
+          assert "e402" not in m["fallbacks"], "small ER must stay native"
+          fb = m["fallbacks"]["e403"]
+          assert fb["mode"] == "svg" and fb["reason"] and fb["source_sha256"] and fb["svg_sha256"], fb
+          xml = zipfile.ZipFile("build/sample-er/deck.pptx").read("ppt/slides/slide2.xml").decode()
+          assert "<p:pic>" not in xml and xml.count('name="er-attr:') == 16, "native ER shapes"
+          print("PASS ER: e402 native (16 attribute rows as text shapes, no picture), e403 SVG exception recorded:", fb["reason"][:60])
+          PY
       - name: Build asset illustration example
         run: >-
           scripts/build
@@ -140,5 +166,6 @@ jobs:
             build/sample-dark
             build/gate4-chatgpt-design
             build/gate4-chatgpt-origin
+            build/sample-er
             build/sample-asset-illustration
           retention-days: 14

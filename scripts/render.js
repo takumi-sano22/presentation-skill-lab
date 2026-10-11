@@ -152,6 +152,69 @@ function drawDiagram(pptx, pSlide, lay, preset) {
   }
 }
 
+// psl.er_layout（scripts/er.py の配置結果）を ER 図のネイティブ図形として描く（ADR-0002）。
+// エンティティは枠・見出し帯・見出し文字・属性行（1行ずつ別の文字図形）に分け、PowerPoint で個別に選択・編集できるようにする。
+// 名前: er-frame:/er-head:/er-entity:<ID>、er-attr:<ID>:<行番号>、er-edge:<辺番号>:<from>-><to>#<線分>、er-card:<辺番号>:from|to、er-label:<辺番号>
+function drawER(pptx, pSlide, lay, preset) {
+  const font = preset.font_body;
+  const PAD = 0.08;
+  for (const e of lay.edges) {
+    const pts = e.points;
+    for (let i = 0; i + 1 < pts.length; i += 1) {
+      const [x1, y1] = pts[i];
+      const [x2, y2] = pts[i + 1];
+      // ER の関係は向き（矢印）ではなく両端の多重度で表す
+      pSlide.addShape(pptx.ShapeType.line, {
+        x: Math.min(x1, x2), y: Math.min(y1, y2), w: Math.abs(x2 - x1), h: Math.abs(y2 - y1),
+        flipH: x2 < x1, flipV: y2 < y1, objectName: `er-edge:${e.index}:${e.from}->${e.to}#${i}`,
+        line: { color: preset.text_muted, width: 1.25 },
+      });
+    }
+    for (const end of ['from', 'to']) {
+      const b = e.card_boxes && e.card_boxes[end];
+      if (!b) continue;
+      pSlide.addText(b.text, {
+        x: b.x, y: b.y, w: b.w, h: b.h, objectName: `er-card:${e.index}:${end}`,
+        fontFace: font, fontSize: lay.card_font_pt, bold: true, color: preset.text, align: 'center', valign: 'middle', margin: 0,
+      });
+    }
+    if (e.label_box) {
+      const b = e.label_box;
+      pSlide.addText(e.label, {
+        x: b.x, y: b.y, w: b.w, h: b.h, objectName: `er-label:${e.index}`,
+        fontFace: font, fontSize: lay.label_font_pt, color: preset.text_muted, align: 'center', valign: 'middle',
+        fill: { color: preset.bg }, margin: 0,
+      });
+    }
+  }
+  for (const en of lay.entities) {
+    pSlide.addShape(pptx.ShapeType.rect, {
+      x: en.x, y: en.y, w: en.w, h: en.h, objectName: `er-frame:${en.id}`,
+      fill: { color: preset.surface }, line: { color: preset.accent_primary, width: 1.25 },
+    });
+    pSlide.addShape(pptx.ShapeType.rect, {
+      x: en.x, y: en.y, w: en.w, h: en.header_h, objectName: `er-head:${en.id}`,
+      fill: { color: preset.accent_primary }, line: { color: preset.accent_primary, width: 1.25 },
+    });
+    pSlide.addText(en.label, {
+      x: en.x + PAD, y: en.y, w: en.w - 2 * PAD, h: en.header_h, objectName: `er-entity:${en.id}`,
+      fontFace: font, fontSize: lay.header_font_pt, bold: true, color: 'FFFFFF', valign: 'middle', margin: 0,
+    });
+    en.rows.forEach((r, k) => {
+      // キー表示（PK / FK / PK/FK）だけアクセント色の太字にし、主キーの行は全体を太字にする
+      const marker = r.text.match(/^(PK\/FK|PK|FK) /);
+      const runs = marker
+        ? [{ text: marker[0], options: { bold: true, color: preset.accent_primary } },
+          { text: r.text.slice(marker[0].length), options: { bold: r.pk, color: preset.text } }]
+        : [{ text: r.text, options: { color: r.kind === 'desc' ? preset.text_muted : preset.text } }];
+      pSlide.addText(runs, {
+        x: r.x + PAD, y: r.y, w: r.w - 2 * PAD, h: r.h, objectName: `er-attr:${en.id}:${k}`,
+        fontFace: font, fontSize: lay.attr_font_pt, valign: 'middle', margin: 0,
+      });
+    });
+  }
+}
+
 // 日本語テーマ規約 J-1: 上流の補助ラベル（表紙キッカー 8.4pt、グラフ注記・軸ラベル 8pt 等）を最小 9pt に引き上げる。
 // 文字列は変えず、文字サイズ属性（百分の一 pt）だけを置き換える
 const MIN_FONT_CENTIPT = 900;
@@ -190,6 +253,17 @@ async function main() {
     renderStandard(pptx, pSlide, slideData, preset);
     const lay = slideData.psl && slideData.psl.diagram_layout;
     if (lay) drawDiagram(pptx, pSlide, lay, preset);
+    const er = slideData.psl && slideData.psl.er_layout;
+    if (er) drawER(pptx, pSlide, er, preset);
+    const erSvg = slideData.psl && slideData.psl.er_svg;
+    if (erSvg) {
+      // 高密度 ER の例外（ADR-0002）: 構造データから生成した SVG を図全体の画像として置く。内部は個別編集できない
+      pSlide.addImage({
+        data: `image/svg+xml;base64,${Buffer.from(erSvg.svg, 'utf8').toString('base64')}`,
+        x: erSvg.x, y: erSvg.y, w: erSvg.w, h: erSvg.h, objectName: `er-svg:${slideData.psl.slide_id}`,
+        altText: `ER 図（SVG。元定義 sha256 ${slideData.psl.fallback.source_sha256.slice(0, 12)}）`,
+      });
+    }
     const img = slideData.psl && slideData.psl.image;
     if (img) {
       // 画像スライド: adapter が manifest の寸法から計算した位置へ置く（cover は領域を埋めて端を切る）
