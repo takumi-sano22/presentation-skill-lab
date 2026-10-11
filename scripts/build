@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# 共通ビルドコマンド（Claude Code / ChatGPT / 人が同じコマンドで同じ資料を作るための入口）。
+#   scripts/build --content <content.yaml> --design <design.yaml> [--out <dir>]
+# 上流レンダラ・LibreOffice は Docker イメージ内で実行する（イメージ内ならそのまま実行）。
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+if [ -n "${PPTX_NODE_MODULES:-}" ]; then
+  exec python3 "$ROOT/scripts/build.py" "$@"
+fi
+exec "$ROOT/scripts/dev.sh" run python3 scripts/build.py "$@"
