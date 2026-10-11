@@ -184,10 +184,11 @@ def check_slide(sid: str, slide: dict, o_slide: dict, shapes: list[Shape]) -> li
         obstacles = [s for s in texted if s.name.startswith(("node:", "edge-label:", "group-label:", "legend:"))]
         for seg in (s for s in shapes if s.name.startswith("edge:")):
             key = seg.name.split("#")[0][len("edge:"):]
-            _, ends = key.split(":", 1)
+            index, ends = key.split(":", 1)
             src, dst = ends.split("->")
             for ob in obstacles:
-                if ob.name in (f"node:{src}", f"node:{dst}"):
+                # 端点のノードと、その辺自身のラベル（密な図では線上配置を許している）は除く
+                if ob.name in (f"node:{src}", f"node:{dst}") or ob.name.startswith(f"edge-label:{index}:"):
                     continue
                 if segment_crosses(seg, ob):
                     add("connector-crossing", f"{seg.name} / {ob.name}", f"線が「{ob.text[:12]}」を貫通します")

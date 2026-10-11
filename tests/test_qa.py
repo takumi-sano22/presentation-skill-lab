@@ -83,10 +83,15 @@ class QaUnitTests(unittest.TestCase):
 
     def test_connector_crossing_uses_flip_direction(self):
         psl = {"diagram_layout": {"nodes": []}}
-        label = sp("edge-label:0:a:b", 2.0, 1.4, 0.6, 0.2, ["ラベル"], sz=900, ins=(0, 0, 0, 0))
-        # 右下がりの線 (1,1)→(4,2) はラベルの中を通る
+        label = sp("edge-label:5:x:y", 2.0, 1.4, 0.6, 0.2, ["ラベル"], sz=900, ins=(0, 0, 0, 0))
+        # 右下がりの線 (1,1)→(4,2) は（別の辺の）ラベルの中を通る
         crossing = sp("edge:0:a->b#0", 1, 1, 3, 1, kind="sp") + label
         self.assertIn("connector-crossing", checks(run_slide(crossing, psl=psl)))
+        # 自分の辺のラベルは線上にあってよい（密な図のフォールバック）
+        own = sp("edge:0:a->b#0", 1, 1, 3, 1) + sp("edge-label:0:a:b", 2.0, 1.4, 0.6, 0.2, ["自分"], sz=900, ins=(0, 0, 0, 0))
+        self.assertNotIn("connector-crossing", checks(run_slide(own, psl=psl)))
+        other = sp("edge:1:c->d#0", 1, 1, 3, 1) + sp("edge-label:0:a:b", 2.0, 1.4, 0.6, 0.2, ["他人"], sz=900, ins=(0, 0, 0, 0))
+        self.assertIn("connector-crossing", checks(run_slide(other, psl=psl)))
         # 右上がり（flipV）の線 (1,2)→(4,1) はラベルの下側を通らない
         flipped = sp("edge:0:a->b#0", 1, 1, 3, 1, flip=' flipV="1"') + sp("edge-label:0:a:b", 1.2, 1.05, 0.6, 0.2, ["ラベル"], sz=900, ins=(0, 0, 0, 0))
         self.assertNotIn("connector-crossing", checks(run_slide(flipped, psl=psl)))
