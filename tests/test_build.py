@@ -84,6 +84,22 @@ class BuildCheckTests(unittest.TestCase):
             z.writestr("ppt/slides/slide1.xml", '<p:sld><a:p><a:r><a:t xml:space="preserve">タイトル</a:t></a:r></a:p></p:sld>')
         self.assertEqual(build.check_content_in_pptx(self.one_slide(slide), path), [])
 
+    def test_png_pages_are_sorted_numerically(self):
+        # ゼロ埋めなしの page-10 が page-2 より前に来て slide ID がずれないこと
+        from unittest import mock
+        ids = [f"s{i:02d}" for i in range(1, 12)]
+        out = self.dir / "png"
+
+        def fake_run(cmd):
+            out.mkdir(exist_ok=True)
+            for i in range(1, 12):
+                (out / f"page-{i}.png").write_text(str(i))
+            return ""
+        with mock.patch.object(build, "run", fake_run):
+            named = build.render_png(self.dir / "x.pdf", out, ids)
+        self.assertEqual([p.read_text() for p in named], [str(i) for i in range(1, 12)])
+        self.assertEqual(named[9].name, "10-s10.png")
+
     def test_short_value_is_not_matched_by_substring(self):
         # 「1」が欠落しても「10」に部分一致して PASS してはならない
         slide = {"id": "s1", "title": "表", "takeaway": "",

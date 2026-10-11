@@ -106,7 +106,8 @@ def render_png(pdf: Path, out_dir: Path, slide_ids: list[str]) -> list[Path]:
     for old in out_dir.glob("*.png"):
         old.unlink()
     run(["pdftoppm", "-r", str(PNG_DPI), "-png", str(pdf), str(out_dir / "page")])
-    pages = sorted(out_dir.glob("page-*.png"))
+    # pdftoppm のゼロ埋め桁は環境・ページ数で変わるため、末尾のページ番号を数値として並べる
+    pages = sorted(out_dir.glob("page-*.png"), key=lambda p: int(p.stem.rsplit("-", 1)[1]))
     if len(pages) != len(slide_ids):
         raise BuildError(f"PNG 枚数 {len(pages)} とスライド数 {len(slide_ids)} が一致しません")
     named = []
