@@ -678,8 +678,8 @@ def check_er_in_pptx(content: dict, outline: dict, pptx: Path) -> list[str]:
                 errors.append(f"{sid}: 関係 {key} の始点が {e['from']}（外部キーを持つ側）の境界にありません")
             if e["to"] in frames and not on_boundary(pts[-1], frames[e["to"]]):
                 errors.append(f"{sid}: 関係 {key} の終点が {e['to']}（参照される側）の境界にありません")
-            fk_rows = [k for k, a in enumerate(nodes[e["from"]].get("attributes", []))
-                       if str(a.get("fk", "")).split(".")[0] == e["to"]]
+            fk_names = er_layout.edge_fk_attributes(nodes, e)
+            fk_rows = [k for k, a in enumerate(nodes[e["from"]].get("attributes", [])) if a["name"] in fk_names[:1]]
             if fk_rows:
                 row = shapes.get(f"er-attr:{e['from']}:{fk_rows[0]}")
                 if row and not row["y"] - 0.02 <= pts[0][1] <= row["y"] + row["h"] + 0.02:

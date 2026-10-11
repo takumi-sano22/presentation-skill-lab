@@ -20,7 +20,7 @@
 | content | 変更 | Issue |
 |---|---|---|
 | 0.1 | 初版 | #1 |
-| 0.2 | 互換追加: `node.attributes[]`（name / type / pk / fk / nullable）、`edge.id`、`edge.cardinality{from,to}`。0.2 の項目は `schema_version: '0.2'` かつ `type: er` のスライドでだけ使える（`validate.er_contract_errors`）。0.1 の入力の意味項目・出力は変わらない | #19 |
+| 0.2 | 互換追加: `node.attributes[]`（name / type / pk / fk / nullable）、`edge.id`、`edge.cardinality{from,to}`、`edge.fk`（関係が表す FK 属性名）。0.2 の項目は `schema_version: '0.2'` かつ `type: er` のスライドでだけ使える（`validate.er_contract_errors`）。0.1 の入力の意味項目・出力は変わらない | #19 |
 
 design スキーマは v0.1 のまま（ER のポリシーは既存の `diagram_mode` に対応づけた）。
 

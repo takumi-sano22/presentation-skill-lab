@@ -90,6 +90,45 @@ class ContractTests(unittest.TestCase):
         self.assertTrue(any("cardinality" in e for e in errors))
         self.assertTrue(any("関係 ID が重複" in e for e in errors))
 
+    def test_reverse_edge_without_fk_is_rejected(self):
+        # 正しい向きの関係に加えて、FK の無い逆向き（商品 → 受注明細）を足すと拒否（Codex 指摘）
+        c, d = load()
+        slide(c, "e402")["diagram"]["edges"].append({"from": "product", "to": "item", "kind": "relationship"})
+        self.assertTrue(any("向きの反転" in e for e in contract_errors(c, d)))
+
+    def multi_fk(self):
+        """受注に請求先 ID を足し、配送先と同じ参照先（配送先）への FK を2つにする。"""
+        c, d = load()
+        dg = slide(c, "e402")["diagram"]
+        orders = dg["nodes"][1]
+        orders["attributes"].insert(2, {"name": "請求先ID", "type": "INT", "fk": "address.配送先ID"})
+        dg["edges"].append({"from": "orders", "to": "address", "label": "請求先", "kind": "relationship",
+                            "cardinality": {"from": "0..N", "to": "1"}})
+        return c, d, dg
+
+    def test_multiple_fks_to_same_target_need_edge_fk(self):
+        c, d, dg = self.multi_fk()
+        self.assertTrue(any("fk に外部キー属性名を指定" in e for e in contract_errors(c, d)))
+        dg["edges"][3]["fk"] = ["配送先ID"]
+        dg["edges"][4]["fk"] = ["請求先ID"]
+        self.assertEqual(contract_errors(c, d), [])
+        dg["edges"][4]["fk"] = ["配送先ID"]
+        errors = contract_errors(c, d)
+        self.assertTrue(any("複数の関係で使われています" in e for e in errors), errors)
+        dg["edges"][4]["fk"] = ["受注日"]
+        self.assertTrue(any("参照する外部キーではありません" in e for e in contract_errors(c, d)))
+
+    def test_multiple_fks_attach_to_their_own_rows(self):
+        c, d, dg = self.multi_fk()
+        dg["edges"][3]["fk"] = ["配送先ID"]
+        dg["edges"][4]["fk"] = ["請求先ID"]
+        lay = er.layout(dg)
+        orders = next(en for en in lay["entities"] if en["id"] == "orders")
+        rows = {r["name"]: r for r in orders["rows"]}
+        for edge, name in ((lay["edges"][3], "配送先ID"), (lay["edges"][4], "請求先ID")):
+            r = rows[name]
+            self.assertTrue(r["y"] <= edge["points"][0][1] <= r["y"] + r["h"], name)
+
     def test_duplicate_attribute_names(self):
         c, d = load()
         attrs = slide(c, "e402")["diagram"]["nodes"][1]["attributes"]
@@ -307,6 +346,18 @@ class BuiltDeckTests(unittest.TestCase):
                           xml, count=1, flags=re.S)
         errors = build.check_er_in_pptx(self.content, self.outline, self.broken("row", "ppt/slides/slide2.xml", move_row))
         self.assertTrue(any("枠の外" in e for e in errors), errors)
+
+    def test_line_attached_to_wrong_attribute_row_is_detected(self):
+        # 関係 item->product（FK 商品ID）の最初の線分を、別の属性行（数量）の高さへ動かす
+        item = next(en for en in self.outline["slides"][1]["psl"]["er_layout"]["entities"] if en["id"] == "item")
+        wrong = item["rows"][3]
+        dy = int((wrong["y"] + wrong["h"] / 2) * 914400)
+
+        def move(xml):
+            return re.sub(r'(name="er-edge:1:item-&gt;product#0".*?<a:off x="\d+" y=")\d+', lambda m: m.group(1) + str(dy),
+                          xml, count=1, flags=re.S)
+        errors = build.check_er_in_pptx(self.content, self.outline, self.broken("row-y", "ppt/slides/slide2.xml", move))
+        self.assertTrue(any("FK 属性の行にありません" in e for e in errors), errors)
 
     def test_missing_cardinality_is_detected(self):
         pptx = self.broken("card", "ppt/slides/slide2.xml",

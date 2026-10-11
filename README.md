@@ -135,7 +135,7 @@ scripts/build \
 
 ## ER 図（`type/layout: er`、ADR-0002）
 
-- content スキーマ v0.2（v0.1 の互換追加）で、エンティティの属性 `attributes[]`（`name` / `type` / `pk` / `fk: <エンティティID>.<属性名>` / `nullable`）、関係の `id`・`cardinality: {from, to}`（`1` / `0..1` / `1..N` / `0..N`）を書ける。`from` は外部キーを持つ側。fk の参照先の実在と関係の向きは `validate.py` が検査する。
+- content スキーマ v0.2（v0.1 の互換追加）で、エンティティの属性 `attributes[]`（`name` / `type` / `pk` / `fk: <エンティティID>.<属性名>` / `nullable`）、関係の `id`・`cardinality: {from, to}`（`1` / `0..1` / `1..N` / `0..N`）・`fk`（この関係を表す外部キー属性名。同じ参照先への FK が複数あるときに指定）を書ける。`from` は外部キーを持つ側。fk の参照先の実在、関係の向き（from 側に to を参照する FK があること）、FK と関係の対応の一意性は `validate.py` が検査する。
 - `scripts/er.py` が決定論的に配置し、`scripts/render.js` がエンティティ枠・見出し・**属性行（1行ずつ別の文字図形）**・直交の関係線・両端の多重度・関係名を **PowerPoint のネイティブ図形**で描く。文字は 10→9.5→9pt まで（9pt 未満にしない）。属性の無い v0.1 の ER は説明（description）を1行で表示する。
 - ポリシーは design の `diagram_mode`: 未指定=auto（ネイティブで安全に配置できなければ SVG へ）、`native`=native_only（できなければ FAIL）、`svg`=常に SVG。
 - フォールバックの判定（再現可能）: 9pt でも横幅/縦幅が足りない、列をまたぐ関係線の通路がない・線がエンティティを貫通、ラベルを重ならずに置けない、関係線の交差が 2 を超える。

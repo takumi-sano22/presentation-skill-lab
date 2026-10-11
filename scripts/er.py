@@ -80,6 +80,14 @@ def attribute_text(attr: dict) -> str:
     return text
 
 
+def edge_fk_attributes(nodes: dict[str, dict], edge: dict) -> list[str]:
+    """関係が表す from 側の外部キー属性名。edge.fk があればそれ、無ければ to を参照する FK 属性（複合 FK は複数）。"""
+    if edge.get("fk"):
+        return list(edge["fk"])
+    return [a["name"] for a in nodes[edge["from"]].get("attributes", [])
+            if str(a.get("fk", "")).split(".")[0] == edge["to"]]
+
+
 def entity_rows(node: dict) -> list[dict]:
     """エンティティ枠の中の行。属性があれば属性行、無ければ説明（v0.1 の description）を1行で表示する。"""
     if node.get("attributes"):
@@ -241,13 +249,12 @@ def _layout(diagram: dict, area: tuple[float, float, float, float], pt: float, f
     # 同じ列間の線は縦の線分が重ならないよう、列間の位置をずらす
     def attach_y(e: dict, end: str) -> float:
         nid = e[end]
+        fk_names = edge_fk_attributes(nodes, e)
         if end == "from":
-            fk = next((a for a in nodes[nid].get("attributes", []) if str(a.get("fk", "")).split(".")[0] == e["to"]), None)
-            if fk:
-                return row_center[(nid, fk["name"])]
+            if fk_names:
+                return row_center[(nid, fk_names[0])]
         else:
-            src = next((a for a in nodes[e["from"]].get("attributes", [])
-                        if str(a.get("fk", "")).split(".")[0] == nid), None)
+            src = next((a for a in nodes[e["from"]].get("attributes", []) if fk_names and a["name"] == fk_names[0]), None)
             target = src["fk"].split(".", 1)[1] if src else None
             if target and (nid, target) in row_center:
                 return row_center[(nid, target)]

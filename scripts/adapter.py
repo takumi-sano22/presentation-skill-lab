@@ -184,6 +184,8 @@ def diagram_items(diagram: dict) -> list[tuple[str, str]]:
             value += f":id={e['id']}"
         if e.get("cardinality"):
             value += f":card={e['cardinality']['from']}/{e['cardinality']['to']}"
+        if e.get("fk"):
+            value += f":fk={','.join(e['fk'])}"
         items.append(("diagram.edge", value))
     return items
 
