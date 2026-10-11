@@ -53,12 +53,12 @@ class BenchmarkVariantTests(unittest.TestCase):
         self.assertIn("内容欠落 0", benchmark.status({**ok, "qa_warnings": 0, "japanese_warnings": []}))
 
 
-def fake_manifest(missing=(), qa_errors=0, diagram_errors=()):
+def fake_manifest(missing=(), qa_errors=0, diagram_errors=(), qa_check="text-overflow"):
     """benchmark.metrics() に渡す最小の manifest。"""
     return {"fallbacks": {}, "checks": {
         "content_missing_in_pptx": list(missing), "content_missing_in_pdf": [], "diagram_errors": list(diagram_errors),
         "media_errors": [], "font_errors": [], "japanese_errors": [], "japanese_warnings": [], "non_content_text": {},
-        "diagram_crossings": {}, "qa": {"errors": [{}] * qa_errors, "warnings": []}}}
+        "diagram_crossings": {}, "qa": {"errors": [{"check": qa_check}] * qa_errors, "warnings": []}}}
 
 
 def result(condition, manifest, built=True, deck="bench-architecture"):
@@ -92,6 +92,12 @@ class BenchmarkGateTests(unittest.TestCase):
         self.assertEqual(failures, [])
         self.assertEqual(stress[0]["qa_errors"], 2)
         self.assertIn("scripts/build --content", stress[0]["repro"])
+
+    def test_text_plus_non_geometry_qa_error_fails(self):
+        # 文字量と無関係な QA（図の線の貫通・画像化など）は文言増加でも FAIL（Codex 指摘）
+        for check in ("connector-crossing", "rasterized-diagram", "missing-native-table"):
+            failures, stress = self.gate([result("text_plus", fake_manifest(qa_errors=1, qa_check=check), built=False)])
+            self.assertEqual((len(failures), stress), (1, []), check)
 
     def test_initial_and_theme_geometry_break_fails(self):
         for c in benchmark.REQUIRED_CLEAN:

@@ -56,7 +56,8 @@ class Shape:
     autofit: str = ""
     anchor: str = "t"  # 文字の縦位置。spAutoFit で枠が上下どちらへ伸びるかを決める
     wrap: bool = True  # bodyPr wrap="none" なら折り返さず、spAutoFit で枠が横にも伸びる
-    align: str = "l"  # 最初の段落の水平位置（l / ctr / r）。折り返さない spAutoFit で左右どちらへ伸びるかを決める
+    # 段落ごとの水平位置（l / ctr / r。texts と同じ順）。折り返さない spAutoFit で各段落が左右どちらへ伸びるかを決める
+    aligns: list[str] = field(default_factory=list)
     font_scale: float = 1.0  # normAutofit に記録された縮小率（PowerPoint が保存した場合）
 
     @property
@@ -78,6 +79,12 @@ class Finding:
     severity: str = "error"  # error（FAIL）/ warning
 
 
+def paragraph_align(para: str) -> str:
+    """段落の水平位置（a:pPr の algn。省略時は左揃え）。"""
+    m = re.search(r'<a:pPr[^>]*\salgn="(\w+)"', para)
+    return m.group(1) if m else "l"
+
+
 def parse_shapes(xml: str) -> list[Shape]:
     shapes = []
     for m in re.finditer(r"<p:(sp|pic|graphicFrame|cxnSp)>.*?</p:\1>", xml, re.S):
@@ -89,6 +96,7 @@ def parse_shapes(xml: str) -> list[Shape]:
         x, y, cx, cy = (int(v) / EMU for v in off.groups())
         paras = re.findall(r"<a:p>.*?</a:p>|<a:p .*?</a:p>", block, re.S)
         texts = [html.unescape("".join(re.findall(r"<a:t(?:\s[^>]*)?>([^<]*)</a:t>", p))) for p in paras]
+        aligns = [paragraph_align(p) for p in paras]
         sizes = [int(v) / 100 for v in re.findall(r'<a:rPr[^>]*\ssz="(\d+)"', block)]
         graphic = "tbl" if "<a:tbl>" in block else ("chart" if "/chart\"" in block or "c:chart" in block else "")
         filled = bool(re.search(r"<p:spPr>.*?<a:solidFill>", block, re.S))
@@ -103,13 +111,12 @@ def parse_shapes(xml: str) -> list[Shape]:
         insets = (inset("lIns", 0.1), inset("tIns", 0.05), inset("rIns", 0.1), inset("bIns", 0.05))
         autofit = "norm" if "<a:normAutofit" in block else ("shape" if "<a:spAutoFit" in block else "")
         anchor_m = re.search(r'anchor="(\w+)"', battrs)
-        align_m = re.search(r'<a:pPr[^>]*\salgn="(\w+)"', block)
         scale_m = re.search(r'<a:normAutofit[^>]*fontScale="(\d+)"', block)
         font_scale = int(scale_m.group(1)) / 100000 if scale_m else 1.0
         shapes.append(Shape(html.unescape(name_m.group(1)) if name_m else "", kind, x, y, cx, cy,
                             [t for t in texts if t.strip()], sizes, graphic, filled, flip, insets, autofit=autofit, font_scale=font_scale,
                             anchor=anchor_m.group(1) if anchor_m else "t", wrap='wrap="none"' not in battrs,
-                            align=align_m.group(1) if align_m else "l"))
+                            aligns=[a for t, a in zip(texts, aligns) if t.strip()]))
     return shapes
 
 
@@ -254,15 +261,18 @@ def check_shape_autofit(sid: str, s: Shape, visible: list[Shape]) -> list[Findin
     """
     pt = max(s.font_sizes) if s.font_sizes else 18.0
     left_in, _, right_in, _ = s.insets
-    grow_w = 0.0
+    # 横: 段落ごとに必要幅と水平位置から左右の伸長量を求め、全段落の最大を合成する（長い段落が右揃えなら左へ伸びる）
+    grow_left = grow_right = 0.0
     if not s.wrap:
-        grow_w = max(0.0, max((text_width_in(t, pt) for t in s.texts), default=0.0) + left_in + right_in - s.w)
+        for text, align in zip(s.texts, s.aligns or ["l"] * len(s.texts)):
+            extra = max(0.0, text_width_in(text, pt) + left_in + right_in - s.w)
+            left = {"r": extra, "ctr": extra / 2}.get(align, 0.0)
+            grow_left, grow_right = max(grow_left, left), max(grow_right, extra - left)
     grow_h = max(0.0, estimated_text_height(s) - s.h)
-    if grow_w <= 0.05 and grow_h <= 0.05:
+    if grow_left + grow_right <= 0.05 and grow_h <= 0.05:
         return []
-    left = {"r": grow_w, "ctr": grow_w / 2}.get(s.align, 0.0)
     up = {"b": grow_h, "ctr": grow_h / 2}.get(s.anchor, 0.0)
-    x0, y0, w, h = s.x - left, s.y - up, s.w + grow_w, s.h + grow_h
+    x0, y0, w, h = s.x - grow_left, s.y - up, s.w + grow_left + grow_right, s.h + grow_h
     expanded = Shape(s.name, s.kind, x0, y0, w, h)
     original = Shape(s.name, s.kind, s.x, s.y, s.w, s.h)
     # 伸びた部分だけを見る（元の枠との重なりは text-overlap が担当）

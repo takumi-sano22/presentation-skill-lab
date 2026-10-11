@@ -32,8 +32,9 @@ def sp(name, x, y, w, h, texts=(), sz=1200, flip="", ins=None, autofit=False, ki
         # autofit=True / "norm" は文字縮小（normAutofit）、"shape" は枠の自動伸長（spAutoFit）
         fit = "<a:spAutoFit/>" if autofit == "shape" else ("<a:normAutofit/>" if autofit else "")
         attrs += (f' anchor="{anchor}"' if anchor else "") + (f' wrap="{wrap}"' if wrap else "")
-        ppr = f'<a:pPr algn="{algn}"/>' if algn else ""
-        paras = "".join(f'<a:p>{ppr}<a:r><a:rPr sz="{sz}"/><a:t>{t}</a:t></a:r></a:p>' for t in texts)
+        # algn は全段落共通の文字列、または段落ごとのリスト
+        ppr_of = lambda i: (lambda a: f'<a:pPr algn="{a}"/>' if a else "")(algn[i] if isinstance(algn, list) else algn)  # noqa: E731
+        paras = "".join(f'<a:p>{ppr_of(i)}<a:r><a:rPr sz="{sz}"/><a:t>{t}</a:t></a:r></a:p>' for i, t in enumerate(texts))
         body = f"<p:txBody><a:bodyPr {attrs}>{fit}</a:bodyPr>{paras}</p:txBody>"
     return (f'<p:{kind}><p:nvSpPr><p:cNvPr id="1" name="{name}"/></p:nvSpPr><p:spPr><a:xfrm{flip}>{off}</a:xfrm>'
             f'</p:spPr>{body}</p:{kind}>')
@@ -116,6 +117,10 @@ class QaUnitTests(unittest.TestCase):
         self.assertNotIn("autofit-expansion", checks(run_slide(sp("a", 4, 1, 3, 0.4, [line], autofit="shape", wrap="none", algn="r") + right)))
         self.assertIn("autofit-expansion", checks(run_slide(sp("a", 0.5, 1, 3, 0.4, [line], autofit="shape", wrap="none", algn="r"))))
         self.assertIn("autofit-expansion", checks(run_slide(sp("a", 7, 1, 2.5, 0.4, [line], autofit="shape", wrap="none"))))
+        # 段落ごとの揃え: 最初が左揃えの短い段落でも、長い後続段落が右揃えなら左へ伸びる（Codex 指摘）
+        left_el = sp("left", 2.5, 1, 1.5, 0.4, ["左の文字"])
+        self.assertIn("autofit-expansion", checks(run_slide(
+            sp("a", 6, 1, 3, 0.6, ["短い", line], autofit="shape", wrap="none", algn=["l", "r"]) + left_el)))
         # 文字が収まっていれば伸びない
         self.assertEqual(run_slide(sp("a", 1, 1, 3, 0.6, ["短い"], autofit="shape") + below), [])
 
