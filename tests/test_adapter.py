@@ -68,6 +68,34 @@ class AdapterTests(unittest.TestCase):
         self.assertIn("利用者 → オーケストレータ（質問）", s003["bullets"])
         self.assertIn("Query Tool → 分析DB（架空）（フィルタ付き取得）", s003["bullets"])
 
+    def test_diagram_attributes_are_kept(self):
+        def enrich(c, _):
+            node = c["slides"][2]["diagram"]["nodes"][1]
+            node["group"] = "制御"
+            node["description"] = "共通ポリシーで判定"
+        outline = self.convert(enrich)
+        self.assertIn("統合認可［制御］：共通ポリシーで判定", outline["slides"][2]["bullets"])
+        items = adapter.outline_semantic_items(outline)
+        self.assertIn(("s003", "diagram.node.kind", "policy:policy"), items)
+        self.assertIn(("s003", "diagram.edge", "user->agent:質問:data"), items)
+        # メタデータ側の属性を消すと往復検査で検出される
+        outline = self.convert()
+        del outline["slides"][2]["psl"]["diagram"]["nodes"][1]["kind"]
+        with self.assertRaises(adapter.ContentMismatch):
+            adapter.verify_roundtrip(self.content, outline)
+
+    def test_asset_path_is_relative_to_outline(self):
+        with tempfile.TemporaryDirectory() as d:
+            base = Path(d) / "deck"
+            (base / "assets").mkdir(parents=True)
+            (base / "assets/fig.png").write_bytes(b"x")
+            c = copy.deepcopy(self.content)
+            c["slides"].append({"id": "s007", "type": "illustration", "title": "図", "takeaway": "", "asset_ref": "assets/fig.png"})
+            out_dir = Path(d) / "build/out"
+            outline = adapter.convert(c, self.design, base, out_dir)
+            image = outline["slides"][-1]["assets"]["image"]
+            self.assertEqual((out_dir / image).resolve(), (base / "assets/fig.png").resolve())
+
     def test_tampered_outline_fails(self):
         cases = {
             "表セル改変": lambda o: o["slides"][3]["table"]["rows"][0].__setitem__(1, "不可"),
@@ -100,6 +128,8 @@ class AdapterTests(unittest.TestCase):
             "表をグラフlayoutで": lambda c, d: d["overrides"].__setitem__("s004", {"layout": "chart"}),
             "表紙に出典": lambda c, d: c["slides"][0].__setitem__("source_refs", ["x"]),
             "未知のschema": lambda c, d: c.__setitem__("schema_version", "9.9"),
+            "asset_fit": lambda c, d: d["overrides"]["s003"].__setitem__("asset_fit", "cover"),
+            "override notes": lambda c, d: d["overrides"]["s003"].__setitem__("notes", "メモ"),
         }
         for name, mutate in cases.items():
             with self.subTest(name):

@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -93,9 +94,25 @@ def diagram_lines(diagram: dict) -> list[str]:
         suffix = f"（{e['label']}）" if e.get("label") else ""
         lines.append(f"{labels[e['from']]} → {labels[e['to']]}{suffix}")
     connected = {e["from"] for e in diagram.get("edges", [])} | {e["to"] for e in diagram.get("edges", [])}
-    # 接続のないノードも欠落させない
-    lines += [n["label"] for n in diagram["nodes"] if n["id"] not in connected]
+    for n in diagram["nodes"]:
+        # 区画（group）・説明（description）は内容なので表示する。接続のないノードも欠落させない
+        detail = (f"［{n['group']}］" if n.get("group") else "") + (f"：{n['description']}" if n.get("description") else "")
+        if detail or n["id"] not in connected:
+            lines.append(n["label"] + detail)
     return lines
+
+
+def diagram_items(diagram: dict) -> list[tuple[str, str]]:
+    """図の意味項目。kind 等の見せ方に関わる属性も #6 で使うため欠落を検査する。"""
+    items = []
+    for n in diagram["nodes"]:
+        items.append(("diagram.node", f"{n['id']}:{n['label']}"))
+        for key in ("kind", "group", "description"):
+            if n.get(key):
+                items.append((f"diagram.node.{key}", f"{n['id']}:{n[key]}"))
+    for e in diagram.get("edges", []):
+        items.append(("diagram.edge", f"{e['from']}->{e['to']}:{e.get('label', '')}:{e.get('kind', '')}"))
+    return items
 
 
 # ---------------------------------------------------------------------------
@@ -131,10 +148,8 @@ def semantic_items(content: dict) -> list[tuple[str, str, str]]:
                 for i, v in enumerate(se["values"]):
                     add(f"chart.value[{se['name']}][{i}]", format_number(v))
         if d := s.get("diagram"):
-            for n in d["nodes"]:
-                add("diagram.node", n["label"])
-            for e in d.get("edges", []):
-                add("diagram.edge", f"{e['from']}->{e['to']}:{e.get('label', '')}")
+            for kind, value in diagram_items(d):
+                add(kind, value)
         for ref in s.get("source_refs", []):
             add("source_ref", ref)
         if s.get("notes"):
@@ -192,10 +207,8 @@ def outline_semantic_items(outline: dict) -> list[tuple[str, str, str]]:
                 for i, v in enumerate(se["values"]):
                     add(f"chart.value[{se['name']}][{i}]", format_number(v))
         if diagram:
-            for n in diagram["nodes"]:
-                add("diagram.node", n["label"])
-            for e in diagram.get("edges", []):
-                add("diagram.edge", f"{e['from']}->{e['to']}:{e.get('label', '')}")
+            for kind, value in diagram_items(diagram):
+                add(kind, value)
         for ref in s.get("sources", []):
             add("source_ref", ref)
         if meta.get("visible_note"):
@@ -222,8 +235,12 @@ def verify_roundtrip(content: dict, outline: dict) -> None:
 # 変換
 # ---------------------------------------------------------------------------
 
-def convert_slide(s: dict, override: dict) -> dict:
+def convert_slide(s: dict, override: dict, asset_base: Path, output_dir: Path) -> dict:
     sid = s["id"]
+    # 上流へ写像先がない design 指定は、成功扱いで無視せず FAIL させる
+    for key in ("asset_fit", "notes"):
+        if key in override:
+            raise UnsupportedContent(f"{sid}: design.overrides.{key} は未対応です（上流 v0.14.0 に写像先なし）")
     layout = override.get("layout", "auto")
     key = s["type"] if layout == "auto" else layout
     if key not in TYPE_MAP:
@@ -274,7 +291,8 @@ def convert_slide(s: dict, override: dict) -> dict:
     if s.get("asset_ref"):
         if variant != "image-sidebar":
             raise UnsupportedContent(f"{sid}: asset_ref を layout '{key}' では配置できません（#7）")
-        out["assets"] = {"image": s["asset_ref"]}
+        # 上流は outline のディレクトリ基準でパスを解決するため、出力先からの相対パスへ変換する
+        out["assets"] = {"image": os.path.relpath(asset_base / s["asset_ref"], output_dir)}
         meta["asset_ref"] = s["asset_ref"]
 
     if up_type == "title":
@@ -297,7 +315,8 @@ def convert_slide(s: dict, override: dict) -> dict:
     return out
 
 
-def convert(content: dict, design: dict) -> dict:
+def convert(content: dict, design: dict, asset_base: Path = Path("."), output_dir: Path = Path(".")) -> dict:
+    """asset_base: content.yaml のディレクトリ、output_dir: outline.json の出力先ディレクトリ。"""
     if content.get("schema_version") not in SUPPORTED_SCHEMA_VERSIONS:
         raise UnsupportedContent(f"schema_version {content.get('schema_version')} は未対応")
     overrides = design.get("overrides", {})
@@ -316,7 +335,8 @@ def convert(content: dict, design: dict) -> dict:
             "classification": meta["classification"],
             "theme": theme,
         },
-        "slides": [convert_slide(s, overrides.get(s["id"], {})) for s in content["slides"]],
+        "slides": [convert_slide(s, overrides.get(s["id"], {}), asset_base.resolve(), output_dir.resolve())
+                   for s in content["slides"]],
     }
     verify_roundtrip(content, outline)
     return outline
@@ -340,7 +360,7 @@ def main() -> int:
     a = p.parse_args()
     try:
         content, design = load_and_validate(a.content, a.design)
-        text = canonical_json(convert(content, design))
+        text = canonical_json(convert(content, design, a.content.parent, a.output.parent))
     except (ValueError, OSError) as exc:
         print(f"FAIL: {exc}", file=sys.stderr)
         return 1
