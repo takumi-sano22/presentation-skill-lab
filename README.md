@@ -78,7 +78,7 @@ scripts/dev.sh run python3 scripts/doctor.py      # 全項目 PASS を確認
 scripts/dev.sh run python3 -m unittest discover -s tests -v
 ```
 
-`python3 scripts/doctor.py` をホストで実行すると、ホストに不足しているツールが FAIL として表示されます（ホストでの描画は前提にしません）。CI の `toolchain` ジョブも同じ `scripts/dev.sh` 経路で doctor を実行します。上流の更新手順は [`docs/vendor-update.md`](docs/vendor-update.md) を参照してください。
+`python3 scripts/doctor.py` をホストで実行すると、ホストに不足しているツールが FAIL として表示されます（ホストでの描画は前提にしません）。CI の `toolchain` ジョブも同じ `scripts/dev.sh` 経路で doctor を実行します。上流の更新手順は [`docs/vendor-update.md`](docs/vendor-update.md)、ビルド環境の固定と版の記録は [`docs/reproducibility.md`](docs/reproducibility.md) を参照してください。
 
 ## adapter（content/design → outline.json）
 

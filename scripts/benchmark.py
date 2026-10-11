@@ -30,6 +30,8 @@ DARK_THEME = {
     "colors": {"background": "#0F172A", "foreground": "#E2E8F0", "accent": "#0284C7", "muted": "#94A3B8"},
 }
 # 文言増加: 要点・本文・注記に補足を足して文字量を増やす（数値・表セル・図ラベルは変えない）
+# QA 重大 0 まで必須の条件。文言増加は意味保持だけ必須で、幾何の崩れは想定崩れとして記録する
+REQUIRED_CLEAN = ("initial", "theme")
 TAKEAWAY_SUFFIX = "（前提と適用範囲は付録を参照）"
 BODY_SUFFIX = "。判断の根拠と例外条件も併記する"
 NOTES_SUFFIX = "。数値はすべて検証用の仮の値である"
@@ -61,6 +63,9 @@ def metrics(manifest: dict | None, error: str = "") -> dict:
         "qa_errors": len(c["qa"]["errors"]),
         "qa_warnings": len(c["qa"]["warnings"]),
         "diagram_errors": len(c["diagram_errors"]),
+        "media_errors": len(c["media_errors"]),
+        "font_errors": len(c["font_errors"]),
+        "japanese_errors": len(c["japanese_errors"]),
         "diagram_crossings": sum(c["diagram_crossings"].values()),
         "japanese_warnings": c["japanese_warnings"],
         "non_content_text": c["non_content_text"],
@@ -90,6 +95,36 @@ def run_condition(deck: str, condition: str, out_root: Path) -> dict:
         partial = work / "out" / "manifest.json"
         m = json.loads(partial.read_text(encoding="utf-8")) if partial.is_file() else None
         return {"deck": deck, "condition": condition, **metrics(m), "built": False, "error": str(exc)}
+
+
+def gate_failures(results: list[dict], out_root: Path) -> tuple[list[str], list[dict]]:
+    """Gate の判定。戻り値は（FAIL 理由の一覧, 想定内の崩れ＝ストレス所見の一覧）。
+
+    - 全 9 条件: ビルド結果（manifest）が得られ、内容欠落・図の接続・画像・フォント・和文の重大エラーが 0。
+      意味（文言・数値・表セル・図の関係）の欠落は文言増加でも許さない。
+    - 初期・テーマ変更: さらに QA 重大 0 かつビルド成功（Gate 3）。
+    - 文言増加: 文字量を意図的に増やす負荷試験なので、QA の幾何の崩れ（あふれ・重なり等）は
+      「想定崩れ」として記録し FAIL にしない。再現コマンドを残す。
+    """
+    failures, stress = [], []
+    for r in results:
+        name = f"{r['deck']}/{r['condition']}"
+        if "content_missing" not in r:
+            failures.append(f"{name}: ビルド結果（manifest）が得られません: {r.get('error', '')[:200]}")
+            continue
+        meaning = {k: r[k] for k in ("content_missing", "diagram_errors", "media_errors", "font_errors", "japanese_errors")
+                   if r.get(k)}
+        if meaning:
+            failures.append(f"{name}: 意味保持・重大検査の FAIL {meaning}")
+        if r["condition"] in REQUIRED_CLEAN:
+            if not r["built"] or r["qa_errors"]:
+                failures.append(f"{name}: QA 重大 {r['qa_errors']}（初期・テーマ変更は 0 が必須）")
+        elif r["qa_errors"] and not meaning:
+            work = out_root / r["deck"] / r["condition"]
+            stress.append({"case": name, "qa_errors": r["qa_errors"],
+                           "repro": f"scripts/build --content {work / 'content.yaml'} --design {work / 'design.yaml'}"
+                                    f" --out {work / 'out'}"})
+    return failures, stress
 
 
 def gallery(results: list[dict], out_root: Path) -> Path:
@@ -142,13 +177,18 @@ def main() -> int:
     p.add_argument("--out", type=Path, default=ROOT / "build" / "benchmark")
     a = p.parse_args()
     results = [run_condition(d, c, a.out) for d in DECKS for c in CONDITIONS]
+    failures, stress = gate_failures(results, a.out)
     (a.out / "metrics.json").write_text(json.dumps(results, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    (a.out / "gate.json").write_text(json.dumps({"passed": not failures, "failures": failures, "expected_stress": stress},
+                                                ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     gallery(results, a.out)
     for r in results:
         print(f"{r['deck']:22s} {r['condition']:10s} {status(r)}")
-    # 初期とテーマ変更は重大 FAIL 0・内容欠落 0 が必須（Gate 3）。文言増加は崩れを検出できているかを見る条件
-    required = [r for r in results if r["condition"] in ("initial", "theme")]
-    return 0 if all(r["built"] and r["content_missing"] == 0 and r["qa_errors"] == 0 for r in required) else 1
+    for s in stress:
+        print(f"想定崩れ（文言増加の負荷試験）: {s['case']} QA 重大 {s['qa_errors']} 再現: {s['repro']}")
+    for f in failures:
+        print(f"FAIL: {f}")
+    return 0 if not failures else 1
 
 
 if __name__ == "__main__":

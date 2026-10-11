@@ -17,7 +17,13 @@ scripts/dev.sh run python3 scripts/benchmark.py
 # → build/benchmark/index.html（スライド×条件の before/after 比較）、build/benchmark/metrics.json
 ```
 
-CI の toolchain ジョブも同じコマンドを実行し、比較ページを artifact として保存する。初期・テーマ変更のどちらかで内容欠落または QA の重大 FAIL があれば終了コード 1。
+CI の toolchain ジョブも同じコマンドを実行し、比較ページを artifact として保存する。Gate（`build/benchmark/gate.json`、#24 で強化）:
+
+- **全 9 条件**: ビルド結果（manifest）が得られ、内容欠落（文言・数値・表セル）・図の接続・画像・フォント・和文の重大エラーが 0。文言増加でも意味の欠落は FAIL。
+- **初期・テーマ変更**: さらに QA 重大 0（ビルド成功）。
+- **文言増加**: 文字量を意図的に増やす負荷試験。QA の幾何の崩れ（あふれ・重なり等）は「想定崩れ」として `gate.json` の `expected_stress` に再現コマンド付きで記録し、FAIL にしない。
+
+いずれかに反すると終了コード 1。
 
 ## 指標 1: 意味保持（自動）
 

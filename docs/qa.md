@@ -11,7 +11,8 @@
 | 内容保持 | adapter の往復検査（content ⇔ outline の意味項目） | `adapter.verify_roundtrip` | FAIL |
 | 幾何 | `out-of-bounds`: 図形のスライド外はみ出し（文字・表・グラフ・画像は FAIL、文字のない装飾は警告） | `qa` | FAIL / 警告 |
 | 幾何 | `text-overlap`: 文字を持つ図形どうしの重なり（小さい方の面積の 10% 超） | `qa` | FAIL |
-| 幾何 | `text-overflow`: 文字量から推定した必要高さが枠を超える（内側余白は bodyPr、縮小指定の枠は対象外） | `qa` | FAIL |
+| 幾何 | `text-overflow`: 文字量から推定した必要高さが枠を超える（内側余白は bodyPr、`normAutofit`・`spAutoFit` の枠は対象外） | `qa` | FAIL |
+| 幾何 | `autofit-expansion`: `spAutoFit`（図形を文字に合わせて伸ばす）の枠が、縦位置（anchor）に応じて伸びた部分で他の文字・表・グラフ・画像と重なる、またはスライド外に出る。`normAutofit`（文字を縮小）とは区別し、こちらは縮小後の実効サイズを `min-font` で検査 | `qa` | FAIL |
 | 文字 | `min-font`: 9pt 未満の文字（J-1。上流の補助ラベルは描画時に 9pt へ引き上げる） | `qa` / `render.js` | FAIL |
 | 文字 | タイトル長（全角換算 40 字超は警告、80 字超は FAIL）・泣き別れ（警告） | `build.check_japanese` | FAIL / 警告 |
 | 図 | `connector-crossing`: 図の線が端点以外のノード・ラベル・区画名・凡例を貫通 | `qa` | FAIL |
@@ -21,6 +22,7 @@
 | 編集性 | 埋め込み PNG の構造・画像スライドの配置 | `build.check_media` | FAIL |
 | 描画環境 | PDF のフォント埋め込み・日本語フォント・Type 3 なし、テーマ書体の解決 | `build` | FAIL |
 | 権利 | 画像アセットの出自・ライセンス・ハッシュ・寸法など | `assets` | FAIL |
+| 入力 | 引用符なしの文言中の「 #」（直後が空白でない。`Issue #19` など）は YAML コメントとして以降が捨てられる。`--public-repo-check` で FAIL、それ以外は警告。「 # 」（# の後に空白）は意図したコメントとして警告のみ | `validate.yaml_comment_issues` | FAIL / 警告 |
 | 参考 | 図の辺の交差数、content 由来でない文言 | `build` | 記録・警告 |
 
 ## 誤検知の除外（`<deck>/qa-exceptions.yaml`）
@@ -39,7 +41,7 @@ exceptions:
 
 ## 意図的に壊したサンプル
 
-`tests/test_qa.py` の `BrokenSampleTests`（Docker 内）は、正常にビルドした PPTX の XML を書き換えて、表の画像化・表セル欠落・数値変更／丸め・スライド外はみ出し・文字の縮小・文字図形の重なり・図の線とラベルの交差で各検査が FAIL することを確かめる。
+`tests/test_qa.py` の `BrokenSampleTests`（Docker 内）は、正常にビルドした PPTX の XML を書き換えて、表の画像化・表セル欠落・数値変更／丸め・スライド外はみ出し・文字の縮小・文字図形の重なり・図の線とラベルの交差・`spAutoFit` の伸長衝突で各検査が FAIL することを確かめる。
 
 ## 限界
 

@@ -80,25 +80,38 @@ def cross_validate(content: dict, design: dict, content_dir: Path) -> list[str]:
 KEY_PREFIX = re.compile(r"^\s*(?:-\s+)?(?:[\w.-]+:(?:\s+|$))?")
 
 
-def yaml_comment_warnings(path: Path) -> list[str]:
+def yaml_comment_issues(path: Path) -> tuple[list[str], list[str]]:
     """文言の途中に「 #」があり、コメントとして切り捨てられている可能性のある行を返す。
 
-    キー（`key:`）と箇条（`- `）を除いた値が引用符・ブロック記号で始まらず、途中に「 #」を含む行を対象にする。
-    値の無い行末コメント（`key:  # 説明`）と、識別子だけの設定値に続く説明（`layout: cover  # 説明`）は対象外。
+    戻り値は（strict, loose）。キー（`key:`）と箇条（`- `）を除いた値が引用符・ブロック記号で始まらず、
+    途中に「 #」を含む行を対象にする。値の無い行末コメント（`key:  # 説明`）と、識別子だけの設定値に続く説明
+    （`layout: cover  # 説明`）は対象外。
+      - strict: 「 #」の直後が空白でない（`Issue #19`、`#タグ` など）。文言の一部である可能性が高い。
+        公開リポジトリ検査（--public-repo-check）では FAIL にする。
+      - loose: 「 # 」と空白が続く。文言の後ろに意図して書いたコメントの可能性があるため警告に留める。
+    意図したコメントを文言の後ろに書く場合は「 # 」（# の後ろに空白）とし、文言に # を含める場合は引用符で囲む。
     """
-    warnings = []
+    strict, loose = [], []
     for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
         if line.lstrip().startswith("#"):
             continue
         value = line[KEY_PREFIX.match(line).end():]
         if not value or value[0] in "'\"|>#[{" or " #" not in value:
             continue
-        before = value.split(" #", 1)[0].strip()
-        # 識別子だけの設定値（例: layout: cover  # 説明）は意図したコメントとみなし、文言（空白や非 ASCII を含む）だけ警告する
-        if re.fullmatch(r"[\w.-]+", before):
+        before, after = value.split(" #", 1)
+        # 識別子だけの設定値（例: layout: cover  # 説明）は意図したコメントとみなし、文言（空白や非 ASCII を含む）だけ対象にする
+        # （\w は和文も含むため ASCII に限定する。「本文の文言  # メモ」を識別子とみなさない）
+        if re.fullmatch(r"[A-Za-z0-9_.-]+", before.strip()):
             continue
-        warnings.append(f"{path.name}:{lineno}: 「 #」以降が YAML のコメントとして捨てられます。文言なら引用符で囲んでください: {line.strip()[:60]}")
-    return warnings
+        message = f"{path.name}:{lineno}: 「 #」以降が YAML のコメントとして捨てられます。文言なら引用符で囲んでください: {line.strip()[:60]}"
+        (loose if after[:1].isspace() or not after else strict).append(message)
+    return strict, loose
+
+
+def yaml_comment_warnings(path: Path) -> list[str]:
+    """yaml_comment_issues の両区分をまとめた一覧（従来の警告 API）。"""
+    strict, loose = yaml_comment_issues(path)
+    return strict + loose
 
 
 def main() -> int:
@@ -114,12 +127,16 @@ def main() -> int:
         errors += cross_validate(content, design, a.content.parent)
         if a.public_repo_check and (content.get("metadata", {}).get("classification") != "public" or not content.get("metadata", {}).get("synthetic")):
             errors.append("公開用サンプルは classification: public かつ synthetic: true が必要")
+        strict_comments, loose_comments = yaml_comment_issues(a.content)
+        if a.public_repo_check:
+            # 公開サンプルで文言が黙って欠けるのを防ぐため、文言中の「 #」（直後が空白でない）は FAIL
+            errors += [f"{c}（公開リポジトリ検査では FAIL）" for c in strict_comments]
         if errors:
             print("FAIL: 入力契約違反")
             for error in errors:
                 print(" -", error)
             return 1
-        for warning in yaml_comment_warnings(a.content):
+        for warning in (loose_comments if a.public_repo_check else strict_comments + loose_comments):
             print("WARN:", warning)
         canonical = json.dumps(content, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
         print(f"PASS: {len(content['slides'])} スライドの入力契約を検証")

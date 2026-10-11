@@ -23,13 +23,15 @@ import qa  # noqa: E402
 EMU = 914400
 
 
-def sp(name, x, y, w, h, texts=(), sz=1200, flip="", ins=None, autofit=False, kind="sp"):
+def sp(name, x, y, w, h, texts=(), sz=1200, flip="", ins=None, autofit=False, kind="sp", anchor=""):
     """合成の図形 XML（単位はインチ）。"""
     off = f'<a:off x="{int(x * EMU)}" y="{int(y * EMU)}"/><a:ext cx="{int(w * EMU)}" cy="{int(h * EMU)}"/>'
     body = ""
     if texts:
         attrs = "" if ins is None else " ".join(f'{k}="{int(v * EMU)}"' for k, v in zip(("lIns", "tIns", "rIns", "bIns"), ins))
-        fit = "<a:normAutofit/>" if autofit else ""
+        # autofit=True / "norm" は文字縮小（normAutofit）、"shape" は枠の自動伸長（spAutoFit）
+        fit = "<a:spAutoFit/>" if autofit == "shape" else ("<a:normAutofit/>" if autofit else "")
+        attrs += f' anchor="{anchor}"' if anchor else ""
         paras = "".join(f'<a:p><a:r><a:rPr sz="{sz}"/><a:t>{t}</a:t></a:r></a:p>' for t in texts)
         body = f"<p:txBody><a:bodyPr {attrs}>{fit}</a:bodyPr>{paras}</p:txBody>"
     return (f'<p:{kind}><p:nvSpPr><p:cNvPr id="1" name="{name}"/></p:nvSpPr><p:spPr><a:xfrm{flip}>{off}</a:xfrm>'
@@ -83,6 +85,31 @@ class QaUnitTests(unittest.TestCase):
         # PowerPoint が保存した縮小率（fontScale）も使う
         xml = sp("b", 1, 1, 4, 1, ["本文"], sz=1200, autofit=True).replace("<a:normAutofit/>", '<a:normAutofit fontScale="62500"/>')
         self.assertIn("min-font", checks(run_slide(xml)))
+
+    def test_shape_autofit_is_distinguished_from_normal_autofit(self):
+        long = "長い本文" * 20
+        self.assertEqual(qa.parse_shapes(sp("a", 1, 1, 2, 0.4, [long], autofit="shape"))[0].autofit, "shape")
+        self.assertEqual(qa.parse_shapes(sp("a", 1, 1, 2, 0.4, [long], autofit=True))[0].autofit, "norm")
+        # spAutoFit は文字を縮めず枠を伸ばすので、自動縮小の min-font 推定の対象にしない
+        self.assertNotIn("min-font", checks(run_slide(sp("a", 1, 1, 2, 0.4, [long * 2], sz=1600, autofit="shape"))))
+
+    def test_shape_autofit_expansion_collision(self):
+        long = "長い本文" * 20
+        below = sp("below", 1, 1.6, 2, 0.4, ["下の文字"])
+        # 上揃え: 下へ伸びて下の文字と重なれば FAIL、空き領域なら問題なし
+        self.assertIn("autofit-expansion", checks(run_slide(sp("a", 1, 1, 2, 0.4, [long], autofit="shape") + below)))
+        self.assertEqual(run_slide(sp("a", 1, 1, 2, 0.4, [long], autofit="shape")), [])
+        # 下揃え: 上へ伸びる。上にある見出しと衝突、下の文字とは衝突しない
+        mid = "長い本文" * 10  # 4 行ほど → 上へ約 0.5in 伸びる
+        above = sp("title", 1, 0.4, 2, 0.4, ["見出し"])
+        f = run_slide(above + sp("a", 1, 1.2, 2, 0.4, [mid], autofit="shape", anchor="b"))
+        self.assertIn("autofit-expansion", checks(f))
+        self.assertNotIn("autofit-expansion", checks(run_slide(sp("a", 1, 1.2, 2, 0.4, [mid], autofit="shape", anchor="b") + below)))
+        # スライド下端の外へ伸びれば FAIL、表・画像との衝突も FAIL
+        self.assertIn("autofit-expansion", checks(run_slide(sp("a", 1, 5.0, 2, 0.4, [long], autofit="shape"))))
+        self.assertIn("autofit-expansion", checks(run_slide(sp("a", 1, 0.5, 2, 0.4, [long], autofit="shape") + frame("t", "tbl"))))
+        # 文字が収まっていれば伸びない
+        self.assertEqual(run_slide(sp("a", 1, 1, 3, 0.6, ["短い"], autofit="shape") + below), [])
 
     def test_min_font(self):
         self.assertIn("min-font", checks(run_slide(sp("a", 1, 1, 3, 1, ["小さい"], sz=800))))
@@ -229,6 +256,18 @@ class BrokenSampleTests(unittest.TestCase):
                           xml, count=1, flags=re.S)
         pptx = self.broken("oob", "ppt/slides/slide2.xml", push_out)
         self.assertIn("out-of-bounds", self.qa_checks(pptx))
+
+    def test_shape_autofit_expansion_in_real_pptx(self):
+        # 本文枠を spAutoFit に変え、文字を大幅に増やしてスライド下端の外まで伸びるようにする（空き領域に収まる伸長は問題にしない）
+        def grow(xml):
+            def edit(m):
+                block = re.sub(r"<a:normAutofit/>|<a:noAutofit/>", "", m.group(1))
+                block = re.sub(r"(<a:bodyPr[^>]*?)(/?)>", lambda b: b.group(1) + "><a:spAutoFit/></a:bodyPr>" if b.group(2)
+                               else b.group(1) + "><a:spAutoFit/>", block, count=1)
+                return block.replace("複数データソース", "複数データソース" * 100, 1)
+            return re.sub(r'(<p:sp>(?:(?!</p:sp>).)*?複数データソース(?:(?!</p:sp>).)*?</p:sp>)', edit, xml, count=1, flags=re.S)
+        pptx = self.broken("spautofit", "ppt/slides/slide2.xml", grow)
+        self.assertIn("autofit-expansion", self.qa_checks(pptx))
 
     def test_tiny_font(self):
         pptx = self.broken("tiny", "ppt/slides/slide6.xml", lambda x: re.sub(r'sz="\d+"', 'sz="700"', x, count=3))
