@@ -23,7 +23,7 @@ import qa  # noqa: E402
 EMU = 914400
 
 
-def sp(name, x, y, w, h, texts=(), sz=1200, flip="", ins=None, autofit=False, kind="sp", anchor=""):
+def sp(name, x, y, w, h, texts=(), sz=1200, flip="", ins=None, autofit=False, kind="sp", anchor="", wrap="", algn=""):
     """合成の図形 XML（単位はインチ）。"""
     off = f'<a:off x="{int(x * EMU)}" y="{int(y * EMU)}"/><a:ext cx="{int(w * EMU)}" cy="{int(h * EMU)}"/>'
     body = ""
@@ -31,8 +31,9 @@ def sp(name, x, y, w, h, texts=(), sz=1200, flip="", ins=None, autofit=False, ki
         attrs = "" if ins is None else " ".join(f'{k}="{int(v * EMU)}"' for k, v in zip(("lIns", "tIns", "rIns", "bIns"), ins))
         # autofit=True / "norm" は文字縮小（normAutofit）、"shape" は枠の自動伸長（spAutoFit）
         fit = "<a:spAutoFit/>" if autofit == "shape" else ("<a:normAutofit/>" if autofit else "")
-        attrs += f' anchor="{anchor}"' if anchor else ""
-        paras = "".join(f'<a:p><a:r><a:rPr sz="{sz}"/><a:t>{t}</a:t></a:r></a:p>' for t in texts)
+        attrs += (f' anchor="{anchor}"' if anchor else "") + (f' wrap="{wrap}"' if wrap else "")
+        ppr = f'<a:pPr algn="{algn}"/>' if algn else ""
+        paras = "".join(f'<a:p>{ppr}<a:r><a:rPr sz="{sz}"/><a:t>{t}</a:t></a:r></a:p>' for t in texts)
         body = f"<p:txBody><a:bodyPr {attrs}>{fit}</a:bodyPr>{paras}</p:txBody>"
     return (f'<p:{kind}><p:nvSpPr><p:cNvPr id="1" name="{name}"/></p:nvSpPr><p:spPr><a:xfrm{flip}>{off}</a:xfrm>'
             f'</p:spPr>{body}</p:{kind}>')
@@ -108,6 +109,13 @@ class QaUnitTests(unittest.TestCase):
         # スライド下端の外へ伸びれば FAIL、表・画像との衝突も FAIL
         self.assertIn("autofit-expansion", checks(run_slide(sp("a", 1, 5.0, 2, 0.4, [long], autofit="shape"))))
         self.assertIn("autofit-expansion", checks(run_slide(sp("a", 1, 0.5, 2, 0.4, [long], autofit="shape") + frame("t", "tbl"))))
+        # 折り返さない枠（wrap="none"）は横へ伸びる: 左揃えは右へ、右揃えは左へ（Codex 指摘）
+        line = "折り返さない一行の長い見出し文字列" * 2  # 12pt で約 5.7in
+        right = sp("right", 7.5, 1, 1.5, 0.4, ["右の文字"])
+        self.assertIn("autofit-expansion", checks(run_slide(sp("a", 4, 1, 3, 0.4, [line], autofit="shape", wrap="none") + right)))
+        self.assertNotIn("autofit-expansion", checks(run_slide(sp("a", 4, 1, 3, 0.4, [line], autofit="shape", wrap="none", algn="r") + right)))
+        self.assertIn("autofit-expansion", checks(run_slide(sp("a", 0.5, 1, 3, 0.4, [line], autofit="shape", wrap="none", algn="r"))))
+        self.assertIn("autofit-expansion", checks(run_slide(sp("a", 7, 1, 2.5, 0.4, [line], autofit="shape", wrap="none"))))
         # 文字が収まっていれば伸びない
         self.assertEqual(run_slide(sp("a", 1, 1, 3, 0.6, ["短い"], autofit="shape") + below), [])
 

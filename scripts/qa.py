@@ -54,7 +54,9 @@ class Shape:
     #   "norm" = normAutofit: 文字を縮小して枠に収める（枠は不変）
     #   "shape" = spAutoFit: 枠そのものを文字に合わせて伸ばす（文字は縮まない。伸びた枠が他要素と衝突し得る）
     autofit: str = ""
-    anchor: str = "t"  # 文字の縦位置。spAutoFit で枠がどちらへ伸びるかを決める
+    anchor: str = "t"  # 文字の縦位置。spAutoFit で枠が上下どちらへ伸びるかを決める
+    wrap: bool = True  # bodyPr wrap="none" なら折り返さず、spAutoFit で枠が横にも伸びる
+    align: str = "l"  # 最初の段落の水平位置（l / ctr / r）。折り返さない spAutoFit で左右どちらへ伸びるかを決める
     font_scale: float = 1.0  # normAutofit に記録された縮小率（PowerPoint が保存した場合）
 
     @property
@@ -101,11 +103,13 @@ def parse_shapes(xml: str) -> list[Shape]:
         insets = (inset("lIns", 0.1), inset("tIns", 0.05), inset("rIns", 0.1), inset("bIns", 0.05))
         autofit = "norm" if "<a:normAutofit" in block else ("shape" if "<a:spAutoFit" in block else "")
         anchor_m = re.search(r'anchor="(\w+)"', battrs)
+        align_m = re.search(r'<a:pPr[^>]*\salgn="(\w+)"', block)
         scale_m = re.search(r'<a:normAutofit[^>]*fontScale="(\d+)"', block)
         font_scale = int(scale_m.group(1)) / 100000 if scale_m else 1.0
         shapes.append(Shape(html.unescape(name_m.group(1)) if name_m else "", kind, x, y, cx, cy,
                             [t for t in texts if t.strip()], sizes, graphic, filled, flip, insets, autofit=autofit, font_scale=font_scale,
-                            anchor=anchor_m.group(1) if anchor_m else "t"))
+                            anchor=anchor_m.group(1) if anchor_m else "t", wrap='wrap="none"' not in battrs,
+                            align=align_m.group(1) if align_m else "l"))
     return shapes
 
 
@@ -119,7 +123,11 @@ def estimated_text_height(shape: Shape, pt: float | None = None) -> float:
     pt = pt or (max(shape.font_sizes) if shape.font_sizes else 18.0)
     left, top, right, bottom = shape.insets
     usable = max(0.1, shape.w - left - right)
-    lines = sum(max(1, -(-text_width_in(t, pt) // usable)) for t in shape.texts)
+    # 折り返さない spAutoFit の枠は段落ごとに1行（横へ伸びる）。それ以外は従来どおり枠幅で折り返して見積もる
+    if not shape.wrap and shape.autofit == "shape":
+        lines = len(shape.texts)
+    else:
+        lines = sum(max(1, -(-text_width_in(t, pt) // usable)) for t in shape.texts)
     return lines * pt * LINE_HEIGHT / 72 + top + bottom
 
 
@@ -240,23 +248,31 @@ def check_slide(sid: str, slide: dict, o_slide: dict, shapes: list[Shape]) -> li
 def check_shape_autofit(sid: str, s: Shape, visible: list[Shape]) -> list[Finding]:
     """spAutoFit の枠が文字量に合わせて伸びたとき、伸びた部分が他の要素やスライド端と衝突しないか。
 
-    PowerPoint は開いた時点で枠の高さを文字に合わせ直す。伸びる向きは縦位置（anchor）で決まり、
-    上揃えは下へ、下揃えは上へ、中央揃えは上下へ半分ずつ伸びる。保存された枠の大きさだけを見ると見逃す。
+    PowerPoint は開いた時点で枠の大きさを文字に合わせ直す。保存された枠の大きさだけを見ると見逃す。
+      - 縦: 縦位置（anchor）で決まり、上揃えは下へ、下揃えは上へ、中央揃えは上下へ半分ずつ伸びる。
+      - 横: 折り返さない枠（wrap="none"）だけ。段落の水平位置で決まり、左揃えは右へ、右揃えは左へ、中央は左右へ伸びる。
     """
-    need = estimated_text_height(s)
-    grow = need - s.h
-    if grow <= 0.05:
+    pt = max(s.font_sizes) if s.font_sizes else 18.0
+    left_in, _, right_in, _ = s.insets
+    grow_w = 0.0
+    if not s.wrap:
+        grow_w = max(0.0, max((text_width_in(t, pt) for t in s.texts), default=0.0) + left_in + right_in - s.w)
+    grow_h = max(0.0, estimated_text_height(s) - s.h)
+    if grow_w <= 0.05 and grow_h <= 0.05:
         return []
-    up = {"b": grow, "ctr": grow / 2}.get(s.anchor, 0.0)
-    regions = [r for r in (Shape(s.name, s.kind, s.x, s.y - up, s.w, up) if up else None,
-                           Shape(s.name, s.kind, s.x, s.y + s.h, s.w, grow - up) if grow - up > 0 else None) if r]
-    collides = [o for o in visible if o is not s and any(r.intersection(o) > 0.01 for r in regions)]
-    top, bottom = s.y - up, s.y + s.h + grow - up
-    if not collides and top >= -0.01 and bottom <= SLIDE_H + 0.01:
+    left = {"r": grow_w, "ctr": grow_w / 2}.get(s.align, 0.0)
+    up = {"b": grow_h, "ctr": grow_h / 2}.get(s.anchor, 0.0)
+    x0, y0, w, h = s.x - left, s.y - up, s.w + grow_w, s.h + grow_h
+    expanded = Shape(s.name, s.kind, x0, y0, w, h)
+    original = Shape(s.name, s.kind, s.x, s.y, s.w, s.h)
+    # 伸びた部分だけを見る（元の枠との重なりは text-overlap が担当）
+    collides = [o for o in visible if o is not s and expanded.intersection(o) - original.intersection(o) > 0.01]
+    outside = x0 < -0.01 or y0 < -0.01 or x0 + w > SLIDE_W + 0.01 or y0 + h > SLIDE_H + 0.01
+    if not collides and not outside:
         return []
     where = f"「{collides[0].text[:10] or collides[0].name}」と重なる" if collides else "スライド外に出る"
     return [Finding(sid, "autofit-expansion", s.name,
-                    f"図形の自動伸長（spAutoFit）で枠が約 {need:.2f}in まで伸び、{where}「{s.text[:16]}」")]
+                    f"図形の自動伸長（spAutoFit）で枠が約 {w:.2f}x{h:.2f}in まで伸び、{where}「{s.text[:16]}」")]
 
 
 def segment_crosses(seg: Shape, box: Shape, samples: int = 40) -> bool:
