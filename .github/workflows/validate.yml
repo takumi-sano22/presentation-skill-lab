@@ -27,6 +27,12 @@ jobs:
           for d in bench-architecture bench-table-chart bench-dense-tech; do
             python scripts/validate.py --content examples/$d/content.yaml --design examples/$d/design.yaml --public-repo-check
           done
+      - name: Validate Gate 4-B (ChatGPT content / Claude design)
+        run: >-
+          python scripts/validate.py
+          --content examples/gate4-chatgpt-origin/content.yaml
+          --design examples/gate4-chatgpt-origin/design.yaml
+          --public-repo-check
       - name: Validate asset example
         run: >-
           python scripts/validate.py
@@ -89,6 +95,27 @@ jobs:
           assert Path("build/gate4-chatgpt-design/deck.pdf").is_file()
           print("PASS Gate4-A: same content, changed design, 6-slide PPTX/PDF/PNG, QA no critical errors")
           PY
+      - name: Gate 4-B - Claude design for ChatGPT-origin content
+        run: >-
+          scripts/build
+          --content examples/gate4-chatgpt-origin/content.yaml
+          --design examples/gate4-chatgpt-origin/design.yaml
+          --out build/gate4-chatgpt-origin
+      - name: Gate 4-B - content lock and render checks
+        run: |
+          python3 - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          raw = hashlib.sha256(Path("examples/gate4-chatgpt-origin/content.yaml").read_bytes()).hexdigest()
+          assert raw == "9bd19d849fa0db9ce9881f15d80948284266d152eee61826b4415ad49f8abcb8", "ChatGPT-origin content changed"
+          m = json.loads(Path("build/gate4-chatgpt-origin/manifest.json").read_text())
+          for key in ("content_missing_in_pptx", "content_missing_in_pdf", "diagram_errors", "media_errors", "font_errors"):
+              assert not m["checks"][key], f"{key}: {m['checks'][key]}"
+          assert not m["checks"]["qa"]["errors"], m["checks"]["qa"]["errors"]
+          assert m["slides"] == 6
+          print("content_sha256", m["inputs"]["content"]["sha256"], "design_sha256", m["inputs"]["design"]["sha256"])
+          print("PASS Gate4-B: ChatGPT content unchanged, Claude design, 6-slide PPTX/PDF/PNG, QA no critical errors")
+          PY
       - name: Build asset illustration example
         run: >-
           scripts/build
@@ -112,5 +139,6 @@ jobs:
             build/sample-cloud-architecture
             build/sample-dark
             build/gate4-chatgpt-design
+            build/gate4-chatgpt-origin
             build/sample-asset-illustration
           retention-days: 14
