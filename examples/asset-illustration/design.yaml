@@ -1,0 +1,18 @@
+schema_version: '0.1'
+deck_id: sample-asset-illustration
+theme:
+  name: technical-light
+  fonts:
+    heading: Noto Sans JP
+    body: Noto Sans JP
+  colors:
+    background: '#F8FAFC'
+    foreground: '#14213D'
+    accent: '#1876A3'
+    muted: '#627286'
+overrides:
+  a001:
+    layout: cover
+  a002:
+    layout: illustration
+    asset_fit: contain

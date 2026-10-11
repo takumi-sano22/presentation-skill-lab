@@ -12,11 +12,13 @@ import hashlib
 import copy
 import json
 import math
+import os
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import assets  # noqa: E402  画像アセット manifest
 import diagram as diagram_layout  # noqa: E402  ネイティブ図の配置計算
 import validate  # noqa: E402  入力契約の検証を共有する
 
@@ -63,6 +65,7 @@ TYPE_MAP = {
     "architecture": ("content", "standard"),
     "flow": ("content", "standard"),
     "er": ("content", "standard"),
+    "illustration": ("content", "standard"),
 }
 
 
@@ -75,6 +78,10 @@ VARIANT_FIELDS = {
     "table": ({"table", "body", "notes", "source_refs"}, {"table"}),
     "chart": ({"chart", "notes", "source_refs"}, {"chart"}),
 }
+# 画像スライド（illustration）: 画像は必須、本文は画像と重なるため不可（注記は notes）
+ILLUSTRATION_FIELDS = ({"asset_ref", "notes", "source_refs"}, {"asset_ref"})
+# 画像・図の描画領域（インチ。見出し帯の下〜フッタの上。scripts/diagram.py と同じ）
+IMAGE_AREA = (0.5, 1.35, 9.0, 3.6)
 CONTENT_FIELDS = {"body", "diagram", "table", "chart", "asset_ref", "source_refs", "notes"}
 # 描画を確認済みのグラフ種別（円グラフは単位表示・凡例の検証が未了のため #5 まで対象外）
 SUPPORTED_CHART_TYPES = {"bar", "line"}
@@ -319,21 +326,33 @@ def verify_roundtrip(content: dict, outline: dict) -> None:
 # 変換
 # ---------------------------------------------------------------------------
 
-def convert_slide(s: dict, override: dict) -> dict:
+def place_image(entry: dict, fit: str) -> dict:
+    """画像を描画領域へ配置する。contain は比率を保って全体を収め、cover は領域を埋めて端を切る。"""
+    ax, ay, aw, ah = IMAGE_AREA
+    if fit == "cover":
+        # 枠は領域いっぱい。src_w/src_h は画像本来の比率で領域を覆う寸法（pptxgenjs がこの比率から切り抜き量を計算する）
+        scale = max(aw / entry["width"], ah / entry["height"])
+        return {"x": ax, "y": ay, "w": aw, "h": ah,
+                "src_w": round(entry["width"] * scale, 4), "src_h": round(entry["height"] * scale, 4)}
+    scale = min(aw / entry["width"], ah / entry["height"])
+    w, h = entry["width"] * scale, entry["height"] * scale
+    return {k: round(v, 4) for k, v in (("x", ax + (aw - w) / 2), ("y", ay + (ah - h) / 2), ("w", w), ("h", h))}
+
+
+def convert_slide(s: dict, override: dict, asset_base: Path | None = None, output_dir: Path | None = None) -> dict:
     sid = s["id"]
     # 上流へ写像先がない design 指定は、成功扱いで無視せず FAIL させる
-    for key in ("asset_fit", "notes"):
-        if key in override:
-            raise UnsupportedContent(f"{sid}: design.overrides.{key} は未対応です（上流 v0.14.0 に写像先なし）")
+    if "notes" in override:
+        raise UnsupportedContent(f"{sid}: design.overrides.notes は未対応です（写像先なし）")
     layout = override.get("layout", "auto")
     key = s["type"] if layout == "auto" else layout
-    if key == "illustration":
-        # 上流の image-sidebar は説明欄が空だと英語のプレースホルダを表示するため、#7 まで未対応
-        raise UnsupportedContent(f"{sid}: illustration（画像スライド）は #7 で対応予定のため未対応です")
     if key not in TYPE_MAP:
         raise UnsupportedContent(f"{sid}: layout '{key}' に対応する上流 variant がありません")
+    if "asset_fit" in override and key != "illustration":
+        raise UnsupportedContent(f"{sid}: asset_fit は illustration（画像スライド）にだけ指定できます")
     up_type, variant = TYPE_MAP[key]
-    allowed, required = VARIANT_FIELDS[variant]
+    # 画像スライドは上流の本文描画（見出し・要点・フッタ）に、render.js が画像を重ねて描く
+    allowed, required = ILLUSTRATION_FIELDS if key == "illustration" else VARIANT_FIELDS[variant]
     present = {f for f in CONTENT_FIELDS if s.get(f)}
     if extra := sorted(present - allowed):
         raise UnsupportedContent(f"{sid}: layout '{key}'（上流 {variant}）では {extra} を表示できません")
@@ -391,6 +410,22 @@ def convert_slide(s: dict, override: dict) -> dict:
             # 構造（ノード ID・接続）だけから決定論的に配置する。崩れる場合は LayoutError で FAIL
             meta["diagram_layout"] = diagram_layout.layout(d)
 
+    if s.get("asset_ref"):
+        if asset_base is None or output_dir is None:
+            raise UnsupportedContent(f"{sid}: 画像の配置には content のディレクトリと出力先が必要です")
+        try:
+            entry = assets.asset_entry(asset_base, s["asset_ref"])
+        except assets.AssetError as exc:
+            raise UnsupportedContent(f"{sid}: {exc}") from exc
+        fit = override.get("asset_fit", "contain")
+        meta["asset_ref"] = s["asset_ref"]
+        meta["image"] = {
+            # 上流・render.js は outline のディレクトリ基準でパスを解決するため、出力先からの相対パスにする
+            "path": os.path.relpath(asset_base.resolve() / s["asset_ref"], output_dir.resolve()),
+            "asset_ref": s["asset_ref"], "sha256": entry["sha256"], "alt": entry["alt"], "fit": fit,
+            **place_image(entry, fit),
+        }
+
     if variant == "table" and bullets:
         # 上流の表描画は bullets を表示しないため、本文は表の脚注（可視）として渡す
         out["table"]["footnotes"] = bullets
@@ -422,7 +457,8 @@ def convert_slide(s: dict, override: dict) -> dict:
     return out
 
 
-def convert(content: dict, design: dict) -> dict:
+def convert(content: dict, design: dict, asset_base: Path | None = None, output_dir: Path | None = None) -> dict:
+    """asset_base: content.yaml のディレクトリ、output_dir: outline.json の出力先（画像スライドで必要）。"""
     if content.get("schema_version") not in SUPPORTED_SCHEMA_VERSIONS:
         raise UnsupportedContent(f"schema_version {content.get('schema_version')} は未対応")
     overrides = design.get("overrides", {})
@@ -445,7 +481,7 @@ def convert(content: dict, design: dict) -> dict:
             "theme": theme,
             "render": {"style_preset": THEME_PRESETS[theme["name"]]},
         },
-        "slides": [convert_slide(s, overrides.get(s["id"], {})) for s in content["slides"]],
+        "slides": [convert_slide(s, overrides.get(s["id"], {}), asset_base, output_dir) for s in content["slides"]],
     }
     for slide in outline["slides"]:
         if slide["type"] == "title":
@@ -504,7 +540,7 @@ def main() -> int:
     a = p.parse_args()
     try:
         content, design = load_and_validate(a.content, a.design)
-        text = canonical_json(convert(content, design))
+        text = canonical_json(convert(content, design, a.content.parent, a.output.parent))
         # 書き込み失敗（権限・既存ディレクトリ・容量不足）も入力エラーと同じ FAIL 応答にする
         a.output.parent.mkdir(parents=True, exist_ok=True)
         a.output.write_text(text, encoding="utf-8")

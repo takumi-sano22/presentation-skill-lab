@@ -2,7 +2,7 @@
 
 Claude Code と ChatGPT の双方から、**中身とデザインを分離**して技術系スライドを生成するためのスキル開発リポジトリ。
 
-> **状態: Phase 1 着手中。** 上流レンダラ（`vendor/presentation-skill` v0.14.0）の固定と描画環境の doctor まで実装済みです。`content.yaml`/`design.yaml` → `outline.json` の adapter と、PPTX/PDF/PNG/静的プレビューを出す共通ビルド CLI（`scripts/build`）まで実装済みです。日本語テーマ（technical-light / technical-dark）とネイティブ技術図まで実装済み、アセット管理（#7）・総合QA（#8）は**未実装**です。`scripts/validate.py` は共通データ契約と参照の検査のみです。
+> **状態: Phase 1 着手中。** 上流レンダラ（`vendor/presentation-skill` v0.14.0）の固定と描画環境の doctor まで実装済みです。`content.yaml`/`design.yaml` → `outline.json` の adapter と、PPTX/PDF/PNG/静的プレビューを出す共通ビルド CLI（`scripts/build`）まで実装済みです。日本語テーマ（technical-light / technical-dark）・ネイティブ技術図・画像アセット管理まで実装済み、総合QA（#8）は**未実装**です。`scripts/validate.py` は共通データ契約と参照の検査のみです。
 
 ## 確定事項
 
@@ -132,6 +132,16 @@ scripts/build \
 - 配置時に検査して FAIL: ノードの重なり・領域はみ出し、辺がノードを貫通、ラベルが箱に収まらない・他と重なる、区画に区画外ノードが入る。
 - ビルド時に PPTX 実体の座標を読み、全ノード図形の存在・重なり0、各辺の始点/終点が正しいノード境界にあり終点に矢印があること、content に無いノード・辺が無いことを検査（manifest `checks.diagram_errors`、交差数は `checks.diagram_crossings`）。
 - ER 図（`type/layout: er`）は #7 まで全ラベル・接続をテキスト行で表示する明示的フォールバック（`psl.fallback`）。図のスライドに本文は置けない（注記は `notes`）。
+
+## 画像アセット（SVG / PNG / 生成画像）
+
+```bash
+python3 scripts/assets.py examples/*/        # 権利・出自・ハッシュ・解像度・SVG の検査
+scripts/build --content examples/asset-illustration/content.yaml --design examples/asset-illustration/design.yaml
+```
+
+- 画像の出自（自作 / 生成 / 第三者）・生成指示・ライセンス・sha256・寸法・透過を `<deck>/assets/manifest.yaml` に記録し、未登録・権利不明・差し替え後の更新漏れ等を CI とビルドで検出する。
+- 図の中心データは画像に焼き込まない。画像生成は人がチャットで明示的に指示したときだけ。詳細は [`docs/assets.md`](docs/assets.md)。
 
 ## WSL でのセットアップ（入力検証のみ）
 

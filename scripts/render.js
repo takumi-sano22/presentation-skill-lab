@@ -168,10 +168,23 @@ async function main() {
   // 上流 builder は slides モジュールのプロパティを呼び出し時に参照するため、ここで差し替えれば反映される
   const slides = require(path.join(VENDOR, 'templates', 'pptxgenjs', 'slides.js'));
   const renderStandard = slides.renderStandard;
+  const outlineDir = path.dirname(path.resolve(args.outline));
   slides.renderStandard = (pptx, pSlide, slideData, preset) => {
     renderStandard(pptx, pSlide, slideData, preset);
     const lay = slideData.psl && slideData.psl.diagram_layout;
     if (lay) drawDiagram(pptx, pSlide, lay, preset);
+    const img = slideData.psl && slideData.psl.image;
+    if (img) {
+      // 画像スライド: adapter が manifest の寸法から計算した位置へ置く（cover は領域を埋めて端を切る）
+      // cover: w/h に画像本来の比率の寸法、sizing に枠の寸法を渡すと、pptxgenjs が比率を保って切り抜く（枠は sizing の寸法）
+      const cover = img.fit === 'cover';
+      pSlide.addImage({
+        path: path.resolve(outlineDir, img.path), x: img.x, y: img.y,
+        w: cover ? img.src_w : img.w, h: cover ? img.src_h : img.h,
+        sizing: cover ? { type: 'cover', w: img.w, h: img.h } : undefined,
+        altText: img.alt, objectName: `asset:${img.asset_ref}`,
+      });
+    }
   };
 
   const builder = require(path.join(VENDOR, 'scripts', 'build_deck_pptxgenjs.js'));
