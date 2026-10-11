@@ -1,0 +1,20 @@
+# Gate 4-A（Claude Code → ChatGPT）のデザイン変更検証用
+# Claude Codeが作成した既存 content.yaml は編集せず、ChatGPTがGitHub上でこのファイルだけ作成。
+# 一次データとノード/辺の意味構造は content 側に保持する。
+schema_version: '0.1'
+deck_id: sample-cloud-architecture
+theme:
+  name: technical-light
+  fonts:
+    heading: Noto Sans JP
+    body: Noto Sans JP
+  colors:
+    background: '#F4F9F7'
+    foreground: '#193442'
+    accent: '#176D67'
+    muted: '#526B70'
+overrides:
+  s001: {layout: cover, density: comfortable}
+  s003: {layout: architecture, density: normal, diagram_mode: native}
+  s004: {layout: comparison, density: normal}
+  s005: {layout: chart, density: normal}
