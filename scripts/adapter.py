@@ -330,7 +330,10 @@ def place_image(entry: dict, fit: str) -> dict:
     """画像を描画領域へ配置する。contain は比率を保って全体を収め、cover は領域を埋めて端を切る。"""
     ax, ay, aw, ah = IMAGE_AREA
     if fit == "cover":
-        return {"x": ax, "y": ay, "w": aw, "h": ah}
+        # 枠は領域いっぱい。src_w/src_h は画像本来の比率で領域を覆う寸法（pptxgenjs がこの比率から切り抜き量を計算する）
+        scale = max(aw / entry["width"], ah / entry["height"])
+        return {"x": ax, "y": ay, "w": aw, "h": ah,
+                "src_w": round(entry["width"] * scale, 4), "src_h": round(entry["height"] * scale, 4)}
     scale = min(aw / entry["width"], ah / entry["height"])
     w, h = entry["width"] * scale, entry["height"] * scale
     return {k: round(v, 4) for k, v in (("x", ax + (aw - w) / 2), ("y", ay + (ah - h) / 2), ("w", w), ("h", h))}

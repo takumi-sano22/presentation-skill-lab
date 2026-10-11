@@ -30,6 +30,7 @@ MIN_RASTER_LONG_SIDE = 1600
 # assets/ に置いてよい manifest 以外の補助ファイル（生成元の記録）
 AUXILIARY_SUFFIXES = {".md", ".txt", ".html", ".css"}
 SVG_NS = "{http://www.w3.org/2000/svg}"
+MEDIA_TYPES = {".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg"}
 
 
 class AssetError(ValueError):
@@ -109,6 +110,9 @@ def check_entry(deck_dir: Path, entry: dict) -> list[str]:
         return [f"{tag}: ファイルがありません"]
     data = path.read_bytes()
     errors = []
+    # レンダラは拡張子で形式を判断するため、拡張子と media_type の対応を必須にする
+    if MEDIA_TYPES[path.suffix.lower()] != entry["media_type"]:
+        errors.append(f"{tag}: 拡張子 {path.suffix} と media_type {entry['media_type']} が一致しません")
     if hashlib.sha256(data).hexdigest() != entry["sha256"]:
         errors.append(f"{tag}: sha256 が manifest と一致しません（差し替え後は manifest を更新）")
     origin, lic = entry["origin"], entry["license"]

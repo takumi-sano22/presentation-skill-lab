@@ -117,6 +117,10 @@ class AssetCheckTests(unittest.TestCase):
                 self.add(name, data, media_type="image/png", **dims)
                 self.assertError(fragment)
 
+    def test_extension_must_match_media_type(self):
+        self.add("wrong.svg", make_png(1600, 900), media_type="image/png", width=1600, height=900)
+        self.assertError("拡張子")
+
     def test_cmyk_jpeg_is_rejected(self):
         self.add("p.jpg", make_jpeg_header(1600, 900, 4), media_type="image/jpeg", width=1600, height=900)
         self.assertError("CMYK")
@@ -160,6 +164,9 @@ class IllustrationAdapterTests(unittest.TestCase):
         design["overrides"]["a002"]["asset_fit"] = "cover"
         img = self.convert(design=design)["slides"][1]["psl"]["image"]
         self.assertEqual((img["x"], img["y"], img["w"], img["h"]), adapter.IMAGE_AREA)
+        # 切り抜きの基準寸法は画像本来の比率で、領域を覆う
+        self.assertAlmostEqual(img["src_w"] / img["src_h"], 1600 / 900, places=3)
+        self.assertTrue(img["src_w"] >= img["w"] - 1e-6 and img["src_h"] >= img["h"] - 1e-6)
 
     def test_unsupported_image_cases(self):
         no_body = copy.deepcopy(self.content)
@@ -209,6 +216,26 @@ class AssetBuildTests(unittest.TestCase):
             self.assertEqual([a["path"] for a in m["assets"]], ["assets/boundary-illustration.svg"])
             self.assertEqual(len(m["svg_png_fallbacks_fixed"]), 1)
             self.assertEqual(m["checks"]["media_errors"], [])
+
+    def test_cover_crops_instead_of_stretching(self):
+        import re
+        import zipfile
+        with tempfile.TemporaryDirectory() as d:
+            deck = Path(d) / "deck"
+            shutil.copytree(DECK, deck)
+            design = yaml.safe_load((deck / "design.yaml").read_text(encoding="utf-8"))
+            design["overrides"]["a002"]["asset_fit"] = "cover"
+            (deck / "design.yaml").write_text(yaml.safe_dump(design, allow_unicode=True), encoding="utf-8")
+            r = self.build(deck, Path(d) / "out")
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            xml = zipfile.ZipFile(Path(d) / "out/deck.pptx").read("ppt/slides/slide2.xml").decode("utf-8")
+            pic = re.search(r"<p:pic>.*?</p:pic>", xml, re.S).group(0)
+            # 16:9 の画像を 9.0x3.6 の枠へ cover → 上下を切り抜く（t/b > 0）。枠は領域いっぱい
+            crop = dict(re.findall(r'(\w)="(\d+)"', re.search(r"<a:srcRect[^>]*>", pic).group(0)))
+            self.assertGreater(int(crop["t"]), 0)
+            self.assertEqual(int(crop["t"]), int(crop["b"]))
+            ext = re.search(r'<a:ext cx="(\d+)" cy="(\d+)"/>', pic).groups()
+            self.assertEqual(tuple(round(int(v) / 914400, 2) for v in ext), (9.0, 3.6))
 
     def test_build_stops_on_unknown_rights(self):
         with tempfile.TemporaryDirectory() as d:
