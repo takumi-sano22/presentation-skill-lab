@@ -1,0 +1,22 @@
+# Gate 4-B（ChatGPT → Claude Code）のデザイン担当分
+# ChatGPTが作成した content.yaml は一字も変更せず、Claude Codeがこのファイルだけを作成した。
+# 照合・監査を主題とするため、落ち着いた藍色の基調と緑青系アクセントを選ぶ。
+schema_version: '0.1'
+deck_id: gate4-chatgpt-origin
+theme:
+  name: technical-light
+  fonts:
+    heading: Noto Sans JP
+    body: Noto Sans JP
+  colors:
+    background: '#F7F8FB'
+    foreground: '#1B2440'
+    accent: '#2F5D8A'
+    muted: '#5B6680'
+overrides:
+  g401: {layout: cover, density: comfortable}
+  g402: {layout: claim, density: normal}
+  g403: {layout: architecture, density: normal, diagram_mode: native}
+  g404: {layout: comparison, density: normal}
+  g405: {layout: chart, density: normal}
+  g406: {layout: appendix, density: normal}
