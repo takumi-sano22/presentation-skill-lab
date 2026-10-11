@@ -372,6 +372,21 @@ class BuiltDeckTests(unittest.TestCase):
         errors = build.check_er_in_pptx(self.content, self.outline, pptx)
         self.assertTrue(any("SVG" in e for e in errors), errors)
 
+    def test_picture_pointing_to_another_svg_is_detected(self):
+        # 正しい SVG をパッケージに残したまま、画像のリレーションだけを別の（改変した）SVG へ向ける（Codex 指摘）
+        with zipfile.ZipFile(self.pptx) as z:
+            items = {i.filename: z.read(i.filename) for i in z.infolist()}
+        svg_name = next(n for n in items if n.endswith(".svg"))
+        items["ppt/media/forged.svg"] = items[svg_name].replace("請求額".encode(), "金額".encode())
+        rels = "ppt/slides/_rels/slide3.xml.rels"
+        items[rels] = items[rels].replace(Path(svg_name).name.encode(), b"forged.svg")
+        forged = Path(self.tmp.name) / "forged.pptx"
+        with zipfile.ZipFile(forged, "w", zipfile.ZIP_DEFLATED) as z:
+            for name, data in items.items():
+                z.writestr(name, data)
+        errors = build.check_er_in_pptx(self.content, self.outline, forged)
+        self.assertTrue(any("画像が参照する SVG" in e for e in errors), errors)
+
     def test_er_line_through_label_is_qa_error(self):
         # 関係名の枠を、別の関係の線分の上へ動かす
         lay = self.outline["slides"][1]["psl"]["er_layout"]

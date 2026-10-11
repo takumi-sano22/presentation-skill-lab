@@ -587,6 +587,45 @@ def svg_media(pptx: Path) -> dict[str, str]:
                 for n in z.namelist() if re.fullmatch(r"ppt/media/[^/]+\.svg", n)}
 
 
+def picture_media(pptx: Path, index: int, name: str) -> list[dict[str, bytes | None]]:
+    """スライド index の、名前が name の画像（p:pic）ごとに、実際に参照しているメディア（PNG と SVG）を返す。
+
+    パッケージ内に正しい SVG が残っていても、画像が別のメディアを参照していれば表示は改変される。
+    そのため名前の存在やパッケージ全体の検索ではなく、画像のリレーションを解決して中身を取り出す。
+    """
+    with zipfile.ZipFile(pptx) as z:
+        part = slide_part_names(z)[index]
+        xml = z.read(part).decode("utf-8")
+        rels_name = part.replace("slides/", "slides/_rels/") + ".rels"
+        rels = z.read(rels_name).decode("utf-8") if rels_name in z.namelist() else ""
+        targets = {rid: target for rid, target in re.findall(r'<Relationship [^>]*Id="([^"]+)"[^>]*Target="([^"]+)"', rels)}
+        # 属性順の違いにも対応する
+        targets |= {rid: target for target, rid in re.findall(r'<Relationship [^>]*Target="([^"]+)"[^>]*Id="([^"]+)"', rels)}
+
+        def read(rid: str | None) -> bytes | None:
+            if not rid or rid not in targets:
+                return None
+            path = (Path(part).parent / targets[rid]).as_posix()
+            parts = []
+            for seg in path.split("/"):
+                if seg == "..":
+                    parts.pop()
+                elif seg != ".":
+                    parts.append(seg)
+            full = "/".join(parts)
+            return z.read(full) if full in z.namelist() else None
+
+        found = []
+        for block in re.findall(r"<p:pic>.*?</p:pic>", xml, re.S):
+            m = re.search(r'<p:cNvPr[^>]*name="([^"]*)"', block)
+            if not m or html.unescape(m.group(1)) != name:
+                continue
+            png = re.search(r'<a:blip r:embed="([^"]+)"', block)
+            svg = re.search(r'<asvg:svgBlip[^>]*r:embed="([^"]+)"', block)
+            found.append({"png": read(png.group(1) if png else None), "svg": read(svg.group(1) if svg else None)})
+        return found
+
+
 def er_fallback_warnings(outline: dict) -> list[str]:
     warnings = []
     for s in outline["slides"]:
@@ -615,14 +654,17 @@ def check_er_in_pptx(content: dict, outline: dict, pptx: Path) -> list[str]:
         meta = o_slide["psl"]
         sid = slide["id"]
         if meta.get("er_svg"):
-            with zipfile.ZipFile(pptx) as z:
-                xml = z.read(slide_part_names(z)[index]).decode("utf-8")
-            if f'name="er-svg:{sid}"' not in xml:
-                errors.append(f"{sid}: ER 図の SVG 画像が配置されていません")
-            svg = svg_media(pptx).get(meta["fallback"]["svg_sha256"])
-            if svg is None:
-                errors.append(f"{sid}: manifest の SVG（sha256 {meta['fallback']['svg_sha256'][:12]}）が PPTX にありません")
+            pics = picture_media(pptx, index, f"er-svg:{sid}")
+            if len(pics) != 1:
+                errors.append(f"{sid}: ER 図の SVG 画像が1つ配置されていません（{len(pics)} 個）")
                 continue
+            raw = pics[0]["svg"]
+            if raw is None or hashlib.sha256(raw).hexdigest() != meta["fallback"]["svg_sha256"]:
+                errors.append(f"{sid}: 画像が参照する SVG が manifest の SVG（sha256 {meta['fallback']['svg_sha256'][:12]}）と一致しません")
+                continue
+            if pics[0]["png"] is None or not pics[0]["png"].startswith(b"\x89PNG"):
+                errors.append(f"{sid}: SVG 非対応環境向けの PNG 代替画像がありません")
+            svg = raw.decode("utf-8")
             d = slide["diagram"]
             if sorted(er_layout.svg_texts(svg)) != sorted(er_layout.expected_texts(d)):
                 errors.append(f"{sid}: SVG の文字列が ER 定義と一致しません")
