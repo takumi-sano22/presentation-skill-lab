@@ -2,7 +2,7 @@
 
 Claude Code と ChatGPT の双方から、**中身とデザインを分離**して技術系スライドを生成するためのスキル開発リポジトリ。
 
-> **状態: Phase 1 着手中。** 上流レンダラ（`vendor/presentation-skill` v0.14.0）の固定と描画環境の doctor まで実装済みです。`content.yaml`/`design.yaml` から PPTX を生成する adapter・ビルド CLI は**未実装**です。`scripts/validate.py` は共通データ契約と参照の検査のみです。
+> **状態: Phase 1 着手中。** 上流レンダラ（`vendor/presentation-skill` v0.14.0）の固定と描画環境の doctor まで実装済みです。`content.yaml`/`design.yaml` → `outline.json` の adapter（`scripts/adapter.py`）は実装済み、PPTX/PDF/PNG のビルド CLI は**未実装**です。`scripts/validate.py` は共通データ契約と参照の検査のみです。
 
 ## 確定事項
 
@@ -79,6 +79,21 @@ scripts/dev.sh run python3 -m unittest discover -s tests -v
 ```
 
 `python3 scripts/doctor.py` をホストで実行すると、ホストに不足しているツールが FAIL として表示されます（ホストでの描画は前提にしません）。CI の `toolchain` ジョブも同じ `scripts/dev.sh` 経路で doctor を実行します。上流の更新手順は [`docs/vendor-update.md`](docs/vendor-update.md) を参照してください。
+
+## adapter（content/design → outline.json）
+
+```bash
+python3 scripts/adapter.py \
+  --content examples/technical-architecture/content.yaml \
+  --design examples/technical-architecture/design.yaml \
+  --output build/outline.json
+```
+
+- 文言・数値・単位・表セル・図ラベル・出典・注記を意味項目として抽出し、変換後の outline.json から逆写像した項目と**順序込みで完全一致**しなければ FAIL（`ContentMismatch`）。
+- 写像できない内容は FAIL（`UnsupportedContent`）。黙って捨てたり画像化しない。図は #6 までテキスト行（`A → B（ラベル）`）へ明示的にフォールバックし、`psl.fallback` に記録する。
+- 上流 v0.14.0 に写像先がない design 指定（`theme.fonts`・`theme.colors`・`density`）は `psl.unapplied_design` に列挙し WARN を出す（適用は #5）。
+- 出力は正規化 JSON（キー順固定）で、同一入力なら `outline_sha256` が一致する。出力の形は `schemas/outline-adapter.schema.json`、スキーマ変更手順は [`docs/schema-versioning.md`](docs/schema-versioning.md)。
+- `outline.json` は生成物。編集しても次回変換で失われる。
 
 ## WSL でのセットアップ（入力検証のみ）
 
