@@ -66,6 +66,29 @@ jobs:
           --content examples/technical-architecture/content.yaml
           --design examples/technical-architecture/design-dark.yaml
           --out build/sample-dark
+      - name: Gate 4-A - ChatGPT design-only render
+        run: >-
+          scripts/build
+          --content examples/technical-architecture/content.yaml
+          --design examples/technical-architecture/design-chatgpt.yaml
+          --out build/gate4-chatgpt-design
+      - name: Gate 4-A - content lock and design diff
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          base = json.loads(Path("build/sample-cloud-architecture/manifest.json").read_text())
+          cand = json.loads(Path("build/gate4-chatgpt-design/manifest.json").read_text())
+          assert base["inputs"]["content"]["sha256"] == cand["inputs"]["content"]["sha256"], "ChatGPT design edit changed content"
+          assert base["inputs"]["design"]["sha256"] != cand["inputs"]["design"]["sha256"], "Design override has no distinct source"
+          for key in ("content_missing_in_pptx", "content_missing_in_pdf", "diagram_errors", "media_errors", "font_errors"):
+              assert not cand["checks"][key], f"{key}: {cand['checks'][key]}"
+          assert not cand["checks"]["qa"]["errors"], cand["checks"]["qa"]["errors"]
+          assert cand["slides"] == base["slides"] == 6
+          assert Path("build/gate4-chatgpt-design/deck.pptx").is_file()
+          assert Path("build/gate4-chatgpt-design/deck.pdf").is_file()
+          print("PASS Gate4-A: same content, changed design, 6-slide PPTX/PDF/PNG, QA no critical errors")
+          PY
       - name: Build asset illustration example
         run: >-
           scripts/build
@@ -88,5 +111,6 @@ jobs:
           path: |
             build/sample-cloud-architecture
             build/sample-dark
+            build/gate4-chatgpt-design
             build/sample-asset-illustration
           retention-days: 14
