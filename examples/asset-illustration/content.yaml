@@ -1,0 +1,30 @@
+schema_version: '0.1'
+deck_id: sample-asset-illustration
+metadata:
+  title: 画像アセットを使う架空の設計説明
+  audience: アーキテクト・実装担当
+  objective: 画像アセットの管理と差し替えを検証する
+  language: ja-JP
+  classification: public
+  synthetic: true
+  content_locked: true
+slides:
+  - id: a001
+    type: cover
+    title: 認可境界をイラストで共有する
+    takeaway: すべて架空の構成です
+  - id: a002
+    type: illustration
+    title: 境界の内側だけにデータ取得が届く
+    takeaway: 図の中心データは画像に焼き込まず本文と出典で示す
+    asset_ref: assets/boundary-illustration.svg
+    notes: イラストは概念図であり、実在のシステム構成ではない
+    source_refs:
+      - 合成データ・架空の設計例
+  - id: a003
+    type: claim
+    title: 画像は差し替えても本文は変わらない
+    takeaway: 内容は content.yaml、画像の出自は manifest で管理する
+    body:
+      - 画像の更新は manifest の sha256 と更新日を同時に更新する
+      - 権利不明の素材は CI で検出して止める

@@ -13,3 +13,5 @@ description: 技術資料の根拠・主張・表・図の意味構造を整理�
 6. `python3 scripts/validate.py --content ... --design ...` を実行する（入力検査）。生成確認は `scripts/build` を使う。
 
 重要: すでに合意された本文/数値は勝手に短縮・丸め・組み替えない。更新内容・変更元・未確認事項を報告する。
+
+画像スライド（`type: illustration`）は `asset_ref` で manifest 登録済みの画像を参照し、本文は置かない（注記は `notes`）。画像に頼らず、主張・数値・出典は content.yaml に書く。

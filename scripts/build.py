@@ -22,6 +22,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import adapter  # noqa: E402
+import assets  # noqa: E402
 import diagram as diagram_layout  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -80,6 +81,53 @@ def convert_pdf(pptx_path: Path, out_dir: Path) -> Path:
     if not pdf.is_file():
         raise BuildError("PDF が生成されませんでした")
     return pdf
+
+
+def fix_svg_fallbacks(pptx: Path) -> list[str]:
+    """pptxgenjs は SVG の PNG フォールバックに SVG 本文をそのまま入れる（不正な PNG）。
+
+    SVG 非対応の閲覧環境でも表示できるよう、LibreOffice で SVG から実際の PNG を作って差し替える。
+    差し替えた media のパスを返す。
+    """
+    with zipfile.ZipFile(pptx) as z:
+        items = {i.filename: z.read(i.filename) for i in z.infolist()}
+        infos = {i.filename: i for i in z.infolist()}
+    broken = [n for n, data in items.items()
+              if re.fullmatch(r"ppt/media/[^/]+\.png", n) and not data.startswith(b"\x89PNG")]
+    if not broken:
+        return []
+    with tempfile.TemporaryDirectory(prefix="psl-svg-") as tmp:
+        for name in broken:
+            src = Path(tmp) / (Path(name).stem + ".svg")
+            src.write_bytes(items[name])
+            with tempfile.TemporaryDirectory(prefix="psl-lo-") as profile:
+                run(["soffice", f"-env:UserInstallation=file://{profile}", "--headless",
+                     "--convert-to", "png", "--outdir", tmp, str(src)])
+            png = src.with_suffix(".png").read_bytes()
+            if not png.startswith(b"\x89PNG"):
+                raise BuildError(f"{name}: SVG から PNG への変換に失敗しました")
+            items[name] = png
+    tmp_pptx = pptx.with_suffix(".tmp.pptx")
+    with zipfile.ZipFile(tmp_pptx, "w", zipfile.ZIP_DEFLATED) as z:
+        for name, data in items.items():
+            z.writestr(infos[name], data)
+    tmp_pptx.replace(pptx)
+    return broken
+
+
+def check_media(content: dict, outline: dict, pptx: Path) -> list[str]:
+    """画像スライドの画像が PPTX に配置され、埋め込み PNG がすべて正しい PNG であることを検査する。"""
+    errors = []
+    with zipfile.ZipFile(pptx) as z:
+        for name in z.namelist():
+            if re.fullmatch(r"ppt/media/[^/]+\.png", name) and not z.read(name).startswith(b"\x89PNG"):
+                errors.append(f"{name}: 不正な PNG です")
+        slide_xml = [z.read(n).decode("utf-8") for n in slide_part_names(z)]
+    for slide, o_slide, xml in zip(content["slides"], outline["slides"], slide_xml):
+        img = o_slide["psl"].get("image")
+        if img and f'name="asset:{img["asset_ref"]}"' not in xml:
+            errors.append(f"{slide['id']}: 画像 {img['asset_ref']} が配置されていません")
+    return errors
 
 
 def pdf_pages(pdf: Path) -> int:
@@ -477,8 +525,13 @@ def build(content_path: Path, design_path: Path, out: Path) -> dict:
     out.mkdir(parents=True, exist_ok=True)
     slide_ids = [s["id"] for s in content["slides"]]
 
+    # 0. 画像アセットの権利・出自・実体検査（権利不明素材は描画前に止める）
+    asset_errors = assets.check_deck(content_path.parent)
+    if asset_errors:
+        raise BuildError("アセット検査 FAIL:\n" + "\n".join(f" - {e}" for e in asset_errors))
+
     # 1. adapter（意味項目の往復検査込み）
-    outline = adapter.convert(content, design)
+    outline = adapter.convert(content, design, content_path.parent, out)
     outline_text = adapter.canonical_json(outline)
     outline_path = out / "outline.json"
     outline_path.write_text(outline_text, encoding="utf-8")
@@ -491,6 +544,7 @@ def build(content_path: Path, design_path: Path, out: Path) -> dict:
     # 3. PPTX（固定コミットの上流レンダラ＋テーマ注入）
     pptx = out / "deck.pptx"
     render_pptx(outline_path, pptx)
+    fixed_fallbacks = fix_svg_fallbacks(pptx)
 
     # 4. PDF / 5. PNG
     pdf = convert_pdf(pptx, out)
@@ -507,6 +561,9 @@ def build(content_path: Path, design_path: Path, out: Path) -> dict:
     missing_pdf = check_content_in_pdf(content, pdf, pages, outline)
     ja_errors, ja_warnings = check_japanese(content, pdf_page_texts(pdf, pages))
     diagram_errors = check_diagram_in_pptx(content, outline, pptx)
+    media_errors = check_media(content, outline, pptx)
+    used_assets = [s["psl"]["image"] for s in outline["slides"] if s["psl"].get("image")]
+    asset_manifest = {e["path"]: e for e in assets.load_manifest(content_path.parent)["assets"]}
     font_errors = check_fonts(fonts)
     non_content = find_non_content_text(content, outline, pptx)
 
@@ -534,6 +591,11 @@ def build(content_path: Path, design_path: Path, out: Path) -> dict:
             "deck.pdf": sha256_file(pdf),
             **{f"png/{p.name}": sha256_file(p) for p in pngs},
         },
+        # 使用した画像アセット（差し替え・権利の追跡用。sha256 は manifest と一致を検査済み）
+        "assets": [{"path": a["asset_ref"], "sha256": a["sha256"], "fit": a["fit"],
+                    "license": asset_manifest[a["asset_ref"]]["license"],
+                    "origin": asset_manifest[a["asset_ref"]]["origin"]["type"]} for a in used_assets],
+        "svg_png_fallbacks_fixed": fixed_fallbacks,
         "fallbacks": {s["psl"]["slide_id"]: s["psl"]["fallback"] for s in outline["slides"] if s["psl"].get("fallback")},
         "checks": {
             "pdf_pages_match": pages == len(slide_ids),
@@ -541,6 +603,7 @@ def build(content_path: Path, design_path: Path, out: Path) -> dict:
             "content_missing_in_pdf": missing_pdf,
             "font_errors": font_errors,
             "diagram_errors": diagram_errors,
+            "media_errors": media_errors,
             "diagram_crossings": {s["psl"]["slide_id"]: diagram_layout.count_crossings(s["psl"]["diagram_layout"])
                                   for s in outline["slides"] if s["psl"].get("diagram_layout")},
             "japanese_errors": ja_errors,
@@ -552,7 +615,7 @@ def build(content_path: Path, design_path: Path, out: Path) -> dict:
     }
     (out / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     write_gallery(out, content["metadata"]["title"], pngs, slide_ids, "manifest.json")
-    errors = [f"PPTX {e}" for e in missing] + [f"PDF {e}" for e in missing_pdf] + font_errors + ja_errors + diagram_errors
+    errors = [f"PPTX {e}" for e in missing] + [f"PDF {e}" for e in missing_pdf] + font_errors + ja_errors + diagram_errors + media_errors
     if errors:
         raise BuildError("検査 FAIL:\n" + "\n".join(f" - {e}" for e in errors))
     return manifest

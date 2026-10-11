@@ -1,0 +1,16 @@
+schema_version: '0.1'
+assets:
+  - path: assets/boundary-illustration.svg
+    sha256: 05edaf3a6c9d662d0185293724ceb2c222060bfba65ca8ddf36dc7bdc10044a8
+    media_type: image/svg+xml
+    width: 1600
+    height: 900
+    transparent: false
+    alt: 認可境界の内側にあるツールとデータだけに要求が届く様子を示す概念イラスト（文字なし）
+    contains_text: false
+    origin:
+      type: authored
+      author: presentation-skill-lab contributors
+      tool: 手書き SVG
+    license: MIT
+    updated: '2026-10-11'

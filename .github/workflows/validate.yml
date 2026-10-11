@@ -20,6 +20,14 @@ jobs:
               --design examples/technical-architecture/$d.yaml \
               --public-repo-check
           done
+      - name: Check image assets (rights / provenance / integrity)
+        run: python scripts/assets.py examples/*/
+      - name: Validate asset example
+        run: >-
+          python scripts/validate.py
+          --content examples/asset-illustration/content.yaml
+          --design examples/asset-illustration/design.yaml
+          --public-repo-check
       - name: Convert example to outline.json (adapter)
         run: >-
           python scripts/adapter.py
@@ -53,6 +61,12 @@ jobs:
           --content examples/technical-architecture/content.yaml
           --design examples/technical-architecture/design-dark.yaml
           --out build/sample-dark
+      - name: Build asset illustration example
+        run: >-
+          scripts/build
+          --content examples/asset-illustration/content.yaml
+          --design examples/asset-illustration/design.yaml
+          --out build/sample-asset-illustration
       - name: Upload sample decks
         uses: actions/upload-artifact@v4
         with:
@@ -60,4 +74,5 @@ jobs:
           path: |
             build/sample-cloud-architecture
             build/sample-dark
+            build/sample-asset-illustration
           retention-days: 14
