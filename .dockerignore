@@ -1,0 +1,5 @@
+# イメージには requirements と上流の package*.json だけを入れる
+*
+!requirements-dev.txt
+!vendor/presentation-skill/package.json
+!vendor/presentation-skill/package-lock.json

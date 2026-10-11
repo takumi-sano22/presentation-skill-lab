@@ -1,0 +1,14 @@
+{
+  "name": "presentation-skill",
+  "url": "https://github.com/siril9/presentation-skill",
+  "path": "vendor/presentation-skill",
+  "tag": "v0.14.0",
+  "commit": "efd899c5ddf866af2ce0001c4c9340af775d4d55",
+  "license": "MIT",
+  "license_file": "LICENSE",
+  "license_sha256": "35ad5e04d561f55065144021e70024bf94f50ef43903f4c54fc62802ed9f50f5",
+  "node_dependencies": {
+    "pptxgenjs": "4.0.1",
+    "jszip": "3.10.1"
+  }
+}

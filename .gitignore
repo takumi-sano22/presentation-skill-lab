@@ -2,7 +2,7 @@
 __pycache__/
 .pytest_cache/
 node_modules/
-vendor/
+vendor/*/node_modules/
 *.pyc
 .env
 .env.*

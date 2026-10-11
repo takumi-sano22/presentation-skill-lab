@@ -1,0 +1,3 @@
+[submodule "vendor/presentation-skill"]
+	path = vendor/presentation-skill
+	url = https://github.com/siril9/presentation-skill.git

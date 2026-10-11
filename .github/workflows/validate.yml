@@ -20,3 +20,16 @@ jobs:
           --public-repo-check
       - name: Test validator regressions
         run: python -m unittest discover -s tests -v
+  toolchain:
+    # 上流固定・描画ツールチェーンを Docker イメージ内で検査する（ローカルの scripts/dev.sh と同一経路）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: Build render toolchain image
+        run: scripts/dev.sh build
+      - name: Doctor
+        run: scripts/dev.sh run python3 scripts/doctor.py
+      - name: Tests in toolchain image
+        run: scripts/dev.sh run python3 -m unittest discover -s tests -v

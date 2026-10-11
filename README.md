@@ -2,7 +2,7 @@
 
 Claude Code と ChatGPT の双方から、**中身とデザインを分離**して技術系スライドを生成するためのスキル開発リポジトリ。
 
-> **状態: Phase 0 / 設計・検証用雛形。** この時点では `PPTX / PDF` の実レンダラは未接続です。`scripts/validate.py` は共通データ契約と参照の検査のみ実装済みです。実装済みと未実装を混同しないでください。
+> **状態: Phase 1 着手中。** 上流レンダラ（`vendor/presentation-skill` v0.14.0）の固定と描画環境の doctor まで実装済みです。`content.yaml`/`design.yaml` から PPTX を生成する adapter・ビルド CLI は**未実装**です。`scripts/validate.py` は共通データ契約と参照の検査のみです。
 
 ## 確定事項
 
@@ -54,7 +54,33 @@ python3 -m unittest discover -s tests -v
 
 PASS は**入力契約の検証結果だけ**です。スライドの完成度を証明しません。
 
-## WSL でのセットアップ（初期PRのマージ後）
+## 生成環境（上流固定・doctor）
+
+上流レンダラは git submodule として **固定コミット**で参照します。
+
+| 項目 | 版・内容 |
+|---|---|
+| 上流 | `siril9/presentation-skill` `v0.14.0` / `efd899c5ddf866af2ce0001c4c9340af775d4d55`（`upstream.lock.json`） |
+| Node | 22（Docker イメージ `node:22-bookworm`）。pptxgenjs 4.0.1 / jszip 3.10.1（上流 `package-lock.json`） |
+| Python | 3.10 以上（イメージ内 3.11）、`requirements-dev.txt` |
+| LibreOffice | Debian bookworm の `libreoffice-impress`（PPTX→PDF） |
+| poppler | `poppler-utils`（PDF→PNG） |
+| 日本語フォント | `fonts-noto-cjk`（Noto Sans CJK JP） |
+
+第三者コード（npm 依存・上流スクリプト・LibreOffice）は**ホストで直接実行せず Docker コンテナ内で実行**します。必要なのは Docker と git のみです（WSL では Docker Desktop の WSL 統合または WSL 内 Docker Engine）。
+
+```bash
+git clone --recurse-submodules https://github.com/takumi-sano22/presentation-skill-lab.git
+cd presentation-skill-lab
+# 既存クローンの場合: git submodule update --init
+scripts/dev.sh build                              # 描画ツールチェーンのイメージ作成
+scripts/dev.sh run python3 scripts/doctor.py      # 全項目 PASS を確認
+scripts/dev.sh run python3 -m unittest discover -s tests -v
+```
+
+`python3 scripts/doctor.py` をホストで実行すると、ホストに不足しているツールが FAIL として表示されます（ホストでの描画は前提にしません）。CI の `toolchain` ジョブも同じ `scripts/dev.sh` 経路で doctor を実行します。上流の更新手順は [`docs/vendor-update.md`](docs/vendor-update.md) を参照してください。
+
+## WSL でのセットアップ（入力検証のみ）
 
 ```bash
 gh repo clone takumi-sano22/presentation-skill-lab
@@ -89,4 +115,4 @@ GitHub Issue #2〜#11 を登録済み。うち #2〜#9 はClaude Code中心で�
 
 ## 出典・権利
 
-上流プロジェクトは各々独立したライセンスを持ちます。現段階ではコードを取り込んでいません。詳細は [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) を参照してください。
+上流プロジェクトは各々独立したライセンスを持ちます。`presentation-skill` は submodule 参照のみで、コードのコピーはしていません。詳細は [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) を参照してください。
