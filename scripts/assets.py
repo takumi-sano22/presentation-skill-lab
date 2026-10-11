@@ -152,30 +152,46 @@ def svg_info(data: bytes) -> tuple[int, int, ET.Element]:
     return round(w), round(h), root
 
 
+def svg_canvas(root: ET.Element, width: int, height: int) -> tuple[float, float]:
+    """図形の座標系（ユーザー単位）でのキャンバス寸法。viewBox があればその幅・高さ。"""
+    view_box = root.get("viewBox")
+    if view_box:
+        _, _, vw, vh = (float(v) for v in re.split(r"[\s,]+", view_box.strip()))
+        return vw, vh
+    return float(width), float(height)
+
+
 def svg_has_opaque_background(root: ET.Element, width: int, height: int) -> bool:
     """最初に描かれる図形が全面を覆う不透明な矩形なら背景あり（透過なし）とみなす。
 
     SVG の透過は描画結果でしか厳密に決まらないため、背景矩形の有無で判定する（docs/assets.md）。
+    矩形の寸法は単位を px へ換算し、キャンバス（viewBox）と数値で比較する。
     """
+    cw, ch = svg_canvas(root, width, height)
     for el in root:
         tag = el.tag.replace(SVG_NS, "")
         if tag in ("defs", "title", "desc", "metadata", "style"):
             continue
         if tag != "rect":
             return False
-        def num(key: str, default: str) -> str:
-            return el.get(key, default).strip()
-        full_w = num("width", "0") in ("100%", str(width)) or num("width", "0").replace(".0", "") == str(width)
-        full_h = num("height", "0") in ("100%", str(height)) or num("height", "0").replace(".0", "") == str(height)
-        at_origin = float(re.sub(r"[a-z%]+$", "", num("x", "0")) or 0) == 0 and float(re.sub(r"[a-z%]+$", "", num("y", "0")) or 0) == 0
+        def covers(key: str, full: float) -> bool:
+            value = el.get(key, "0").strip()
+            if value == "100%":
+                return True
+            length = svg_length(value)
+            return length is not None and abs(length - full) <= 0.5
+        def at_zero(key: str) -> bool:
+            length = svg_length(el.get(key, "0"))
+            return length is not None and abs(length) <= 0.5
         style = el.get("style", "")
-        fill = el.get("fill", "black")
-        m = re.search(r"fill\s*:\s*([^;]+)", style)
-        fill = (m.group(1) if m else fill).strip().lower()
-        opacities = [el.get(k) for k in ("opacity", "fill-opacity")] + re.findall(r"(?:^|;)\s*(?:fill-)?opacity\s*:\s*([0-9.]+)", style)
+        m = re.search(r"fill\s*:\s*([^;]+)", style, re.I)
+        fill = (m.group(1) if m else el.get("fill", "black")).strip().lower()
+        opacities = [el.get(k) for k in ("opacity", "fill-opacity")]
+        opacities += re.findall(r"(?:^|;)\s*(?:fill-)?opacity\s*:\s*([0-9.]+)", style, re.I)
         translucent = any(v is not None and float(v) < 1 for v in opacities)
         opaque_fill = fill not in ("none", "transparent") and not fill.startswith(("rgba", "hsla"))
-        return full_w and full_h and at_origin and opaque_fill and not translucent
+        return (covers("width", cw) and covers("height", ch) and at_zero("x") and at_zero("y")
+                and opaque_fill and not translucent)
     return False
 
 
