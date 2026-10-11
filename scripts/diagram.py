@@ -246,7 +246,8 @@ def place_edge_labels(result: dict, gap_x: float) -> None:
     候補は「線分上の位置 t × 線の上側/下側」。どの線とも交わらない候補が無ければ、線上（背景で線を隠す）を許す。
     """
     area = Box(**result["area"])
-    node_boxes = [Box(n["x"], n["y"], n["w"], n["h"]) for n in result["nodes"]]
+    # ノードに加えて区画の見出し（区画名の文字）も避ける
+    node_boxes = [Box(n["x"], n["y"], n["w"], n["h"]) for n in result["nodes"]] + group_label_boxes(result)
     all_segments = [(tuple(p), tuple(q)) for e in result["edges"] for p, q in zip(e["points"], e["points"][1:])]
     placed: list[Box] = []
     label_w = max(0.6, gap_x - 0.08)
@@ -282,6 +283,12 @@ def place_edge_labels(result: dict, gap_x: float) -> None:
             raise LayoutError(f"辺 {e['from']}->{e['to']} のラベル「{e['label']}」を重ならずに置けません")
         placed.append(chosen)
         e["label_box"] = chosen.as_dict()
+
+
+def group_label_boxes(result: dict) -> list[Box]:
+    """区画名の文字が占める領域（区画枠の左上の見出し帯）。"""
+    return [Box(g["x"] + 0.08, g["y"] + 0.02, min(g["w"] - 0.16, text_width_in(g["name"], 9) + 0.1), GROUP_LABEL_H - 0.04)
+            for g in result["groups"]]
 
 
 def segment_hits_box(p: tuple[float, float], q: tuple[float, float], box: Box, samples: int = 40) -> bool:
@@ -324,7 +331,11 @@ def check_geometry(result: dict) -> None:
         for other in result["groups"]:
             if other["name"] > g["name"] and gb.intersects(Box(other["x"], other["y"], other["w"], other["h"])):
                 errors.append(f"区画 {g['name']} と {other['name']} が重なります")
-    occupied = list(boxes.values()) + [Box(**e["label_box"]) for e in result["edges"] if "label_box" in e]
+    labels = [Box(**e["label_box"]) for e in result["edges"] if "label_box" in e]
+    for gl in group_label_boxes(result):
+        if any(gl.intersects(lb) for lb in labels):
+            errors.append("辺ラベルが区画名と重なります")
+    occupied = list(boxes.values()) + labels
     for item in result["legend"]:
         if any(Box(item["x"], item["y"], item["w"], item["h"]).intersects(b) for b in occupied):
             errors.append(f"凡例「{item['label']}」がノード・ラベルと重なります")

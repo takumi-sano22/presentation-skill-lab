@@ -20,6 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 import adapter  # noqa: E402
+import build  # noqa: E402
 
 RENDERER = ROOT / "vendor/presentation-skill/scripts/build_deck_pptxgenjs.js"
 # 上流 v2 契約が足す英語ラベル・プレースホルダ（v1 固定で出ないこと）
@@ -116,6 +117,21 @@ class RenderContractTests(unittest.TestCase):
         # 制御の辺は破線、データの辺は実線（線種で意味を示す）
         self.assertIn('prstDash val="dash"', shapes["edge:1:agent->policy#0"])
         self.assertNotIn('prstDash val="dash"', shapes["edge:0:user->agent#0"])
+
+    def test_diagram_with_groups_and_descriptions_passes_build_checks(self):
+        # 説明はノード名と別の段落になり、内容照合（原子値）と関係検査を通る
+        content = copy.deepcopy(self.content)
+        group = {"user": "利用者側", "agent": "制御面", "policy": "制御面", "tool": "データ面", "db": "データ面"}
+        for n in content["slides"][2]["diagram"]["nodes"]:
+            n["group"] = group[n["id"]]
+        content["slides"][2]["diagram"]["nodes"][1]["description"] = "共通ポリシーで判定"
+        outline = adapter.convert(content, self.design)
+        pptx = self.render(outline, "groups")
+        self.assertEqual(build.check_content_in_pptx(content, pptx, outline), [])
+        self.assertEqual(build.check_diagram_in_pptx(content, outline, pptx), [])
+        units = build.pptx_units(pptx)[2]
+        self.assertIn("統合認可", units)
+        self.assertIn("共通ポリシーで判定", units)
 
     def test_dark_theme_uses_dark_surfaces(self):
         _, dark = adapter.load_and_validate(ROOT / "examples/technical-architecture/content.yaml",

@@ -101,6 +101,16 @@ class LayoutTests(unittest.TestCase):
         with self.assertRaises(diagram.LayoutError):
             diagram.layout({"nodes": [{"id": "a", "label": "A"}], "edges": [{"from": "a", "to": "a"}]})
 
+    def test_edge_labels_avoid_group_names(self):
+        d = copy.deepcopy(SAMPLE)
+        group = {"user": "利用者側", "agent": "制御面", "policy": "制御面", "tool": "データ面", "db": "データ面"}
+        for n in d["nodes"]:
+            n["group"] = group[n["id"]]
+        r = diagram.layout(d)
+        labels = [diagram.Box(**e["label_box"]) for e in r["edges"] if "label_box" in e]
+        for gl in diagram.group_label_boxes(r):
+            self.assertFalse(any(gl.intersects(lb) for lb in labels))
+
     def test_legend_lists_edge_kinds_in_japanese(self):
         r = diagram.layout(SAMPLE)
         self.assertEqual([(i["label"], i["dash"]) for i in r["legend"]], [("データ", "solid"), ("制御", "dash")])
