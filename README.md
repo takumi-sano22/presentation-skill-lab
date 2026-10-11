@@ -2,7 +2,7 @@
 
 Claude Code と ChatGPT の双方から、**中身とデザインを分離**して技術系スライドを生成するためのスキル開発リポジトリ。
 
-> **状態: Phase 1 着手中。** 上流レンダラ（`vendor/presentation-skill` v0.14.0）の固定と描画環境の doctor まで実装済みです。`content.yaml`/`design.yaml` → `outline.json` の adapter と、PPTX/PDF/PNG/静的プレビューを出す共通ビルド CLI（`scripts/build`）まで実装済みです。日本語テーマ（technical-light / technical-dark）・ネイティブ技術図・画像アセット管理まで実装済み、総合QA（#8）は**未実装**です。`scripts/validate.py` は共通データ契約と参照の検査のみです。
+> **状態: Phase 1 着手中。** 上流レンダラ（`vendor/presentation-skill` v0.14.0）の固定と描画環境の doctor まで実装済みです。`content.yaml`/`design.yaml` → `outline.json` の adapter と、PPTX/PDF/PNG/静的プレビューを出す共通ビルド CLI（`scripts/build`）まで実装済みです。日本語テーマ（technical-light / technical-dark）・ネイティブ技術図・画像アセット管理・自動 QA まで実装済みです。視覚ベンチマーク（#9）は未実装です。`scripts/validate.py` は共通データ契約と参照の検査のみです。
 
 ## 確定事項
 
@@ -142,6 +142,10 @@ scripts/build --content examples/asset-illustration/content.yaml --design exampl
 
 - 画像の出自（自作 / 生成 / 第三者）・生成指示・ライセンス・sha256・寸法・透過を `<deck>/assets/manifest.yaml` に記録し、未登録・権利不明・差し替え後の更新漏れ等を CI とビルドで検出する。
 - 図の中心データは画像に焼き込まない。画像生成は人がチャットで明示的に指示したときだけ。詳細は [`docs/assets.md`](docs/assets.md)。
+
+## 自動 QA
+
+`scripts/build` が内容保持（PPTX/PDF の照合・往復検査）、幾何（スライド外・文字図形の重なり・推定あふれ）、最小文字サイズ、図の線と関係、編集性（表・グラフ・図の画像化の検出）、権利を検査し、結果を `build/<deck>/qa/report.json` に出す（CI artifact）。誤検知の除外は `qa-exceptions.yaml`（Slide ID・検査 ID・対象・理由が必須）。詳細は [`docs/qa.md`](docs/qa.md)。
 
 ## WSL でのセットアップ（入力検証のみ）
 
