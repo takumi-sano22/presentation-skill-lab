@@ -1,0 +1,140 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.org/presentation-skill-lab/design.schema.json",
+  "title": "Slide design contract v0.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "deck_id",
+    "theme",
+    "overrides"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "0.1"
+    },
+    "deck_id": {
+      "$ref": "#/$defs/id"
+    },
+    "theme": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "fonts",
+        "colors"
+      ],
+      "properties": {
+        "name": {
+          "enum": [
+            "technical-light",
+            "technical-dark"
+          ]
+        },
+        "fonts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "heading",
+            "body"
+          ],
+          "properties": {
+            "heading": {
+              "type": "string"
+            },
+            "body": {
+              "type": "string"
+            }
+          }
+        },
+        "colors": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "background",
+            "foreground",
+            "accent"
+          ],
+          "properties": {
+            "background": {
+              "type": "string",
+              "pattern": "^#[0-9a-fA-F]{6}$"
+            },
+            "foreground": {
+              "type": "string",
+              "pattern": "^#[0-9a-fA-F]{6}$"
+            },
+            "accent": {
+              "type": "string",
+              "pattern": "^#[0-9a-fA-F]{6}$"
+            },
+            "muted": {
+              "type": "string",
+              "pattern": "^#[0-9a-fA-F]{6}$"
+            }
+          }
+        }
+      }
+    },
+    "overrides": {
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/id"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "layout"
+        ],
+        "properties": {
+          "layout": {
+            "enum": [
+              "auto",
+              "cover",
+              "claim",
+              "architecture",
+              "flow",
+              "er",
+              "comparison",
+              "table",
+              "chart",
+              "illustration",
+              "appendix"
+            ]
+          },
+          "density": {
+            "enum": [
+              "comfortable",
+              "normal",
+              "dense"
+            ]
+          },
+          "diagram_mode": {
+            "enum": [
+              "native",
+              "svg",
+              "image"
+            ]
+          },
+          "asset_fit": {
+            "enum": [
+              "contain",
+              "cover"
+            ]
+          },
+          "notes": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]{1,63}$"
+    }
+  }
+}

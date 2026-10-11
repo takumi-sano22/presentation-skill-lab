@@ -1,0 +1,22 @@
+name: Validate sources
+on:
+  push:
+  pull_request:
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install validation dependencies
+        run: python -m pip install -r requirements-dev.txt
+      - name: Validate example inputs
+        run: >-
+          python scripts/validate.py
+          --content examples/technical-architecture/content.yaml
+          --design examples/technical-architecture/design.yaml
+          --public-repo-check
+      - name: Test validator regressions
+        run: python -m unittest discover -s tests -v
