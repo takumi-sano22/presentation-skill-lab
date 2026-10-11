@@ -44,7 +44,8 @@
             "properties": {
               "headers": {"type": "array", "items": {"type": "string"}},
               "rows": {"type": "array", "items": {"type": "array", "items": {"type": "string"}}},
-              "caption": {"type": "string"}
+              "caption": {"type": "string"},
+              "footnotes": {"type": "array", "items": {"type": "string"}}
             }
           },
           "chart": {

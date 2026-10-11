@@ -183,6 +183,10 @@ def outline_semantic_items(outline: dict) -> list[tuple[str, str, str]]:
             bullets = bullets[: len(bullets) - len(fallback)]
         for b in bullets:
             add("body", b)
+        if meta.get("table_body"):
+            bullets = list(s["table"].get("footnotes", []))
+            for b in bullets:
+                add("body", b)
         if t := s.get("table"):
             for h in t["headers"]:
                 add("table.header", h)
@@ -295,6 +299,13 @@ def convert_slide(s: dict, override: dict, asset_base: Path, output_dir: Path) -
         out["assets"] = {"image": os.path.relpath(asset_base / s["asset_ref"], output_dir)}
         meta["asset_ref"] = s["asset_ref"]
 
+    if variant == "table" and bullets:
+        # 上流の表描画は bullets を表示しないため、本文は表の脚注（可視）として渡す
+        out["table"]["footnotes"] = bullets
+        meta["table_body"] = True
+        bullets = []
+    if variant == "chart" and bullets:
+        raise UnsupportedContent(f"{sid}: グラフのスライドは本文を表示できません（注記 notes か別スライドへ）")
     if up_type == "section":
         # 上流の renderSection は title / subtitle しか描画しないため、それ以外は FAIL させる
         if bullets or s.get("source_refs") or s.get("notes") or s.get("asset_ref"):

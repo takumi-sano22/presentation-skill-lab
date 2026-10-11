@@ -131,6 +131,7 @@ class AdapterTests(unittest.TestCase):
             "asset_fit": lambda c, d: d["overrides"]["s003"].__setitem__("asset_fit", "cover"),
             "override notes": lambda c, d: d["overrides"]["s003"].__setitem__("notes", "メモ"),
             "中扉に本文": lambda c, d: c["slides"][5].update(type="section"),
+            "グラフに本文": lambda c, d: c["slides"][4].__setitem__("body", ["補足"]),
         }
         for name, mutate in cases.items():
             with self.subTest(name):
@@ -143,6 +144,15 @@ class AdapterTests(unittest.TestCase):
             c["slides"][3]["table"]["period"] = "2026年"
         s004 = self.convert(add_unit)["slides"][3]
         self.assertEqual(s004["table"]["caption"], "単位: 件 / 期間: 2026年")
+
+    def test_table_body_becomes_visible_footnotes(self):
+        def add_body(c, _):
+            c["slides"][3]["body"] = ["比較は概念上のもの"]
+        outline = self.convert(add_body)
+        Draft202012Validator(OUTLINE_SCHEMA).validate(outline)
+        s004 = outline["slides"][3]
+        self.assertEqual(s004["table"]["footnotes"], ["比較は概念上のもの"])
+        self.assertNotIn("bullets", s004)
 
     def test_number_format_is_stable(self):
         self.assertEqual(adapter.format_number(20), adapter.format_number(20.0))
