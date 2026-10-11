@@ -46,6 +46,40 @@ class ValidatorTests(unittest.TestCase):
             self.assertEqual(len([w for w in warnings if ":1:" in w]), 1)
             self.assertFalse(any(":2:" in w or ":4:" in w for w in warnings))
 
+    def test_inline_hash_in_text_fails_public_check_only(self):
+        # #24: 引用符なしの「Issue #19」は公開リポジトリ検査で FAIL、通常は警告
+        def mutate(c, _):
+            c["slides"][1]["takeaway"] = "PLACEHOLDER"
+        for public, code in ((True, 1), (False, 0)):
+            with self.subTest(public=public), tempfile.TemporaryDirectory() as d:
+                root = Path(d)
+                c = yaml.safe_load(CONTENT.read_text(encoding="utf-8"))
+                design = yaml.safe_load(DESIGN.read_text(encoding="utf-8"))
+                mutate(c, design)
+                text = yaml.safe_dump(c, allow_unicode=True).replace("PLACEHOLDER", "詳細は Issue #19 で検討")
+                (root / "content.yaml").write_text(text, encoding="utf-8")
+                (root / "design.yaml").write_text(yaml.safe_dump(design, allow_unicode=True), encoding="utf-8")
+                command = [sys.executable, str(ROOT / "scripts/validate.py"), "--content", str(root / "content.yaml"),
+                           "--design", str(root / "design.yaml")] + (["--public-repo-check"] if public else [])
+                r = subprocess.run(command, capture_output=True, text=True, check=False)
+                self.assertEqual(r.returncode, code, r.stdout + r.stderr)
+                self.assertIn("Issue #19", r.stdout)
+
+    def test_intentional_comment_after_text_is_only_warned(self):
+        sys.path.insert(0, str(ROOT / "scripts"))
+        import validate
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "content.yaml"
+            path.write_text("notes: 詳細は Issue #19 で検討\ntitle: 本文の文言  # 作成者メモ\nquoted: '詳細は Issue #19'\n"
+                            "layout: cover  # 設定の説明\ntakeaway: Issue #19\n"
+                            "block: |\n  詳細は Issue #19 で検討\nfolded: >\n  本文 # 記号\nlist:\n  - 箇条の文言 #タグ\n",
+                            encoding="utf-8")
+            strict, loose = validate.yaml_comment_issues(path)
+            # 一語の値（takeaway: Issue #19）も「#」直後が空白でなければ strict（Codex 指摘）
+            # ブロックスカラー（| / >）の本文は文字列として「#」を保持するので対象外（Codex 指摘）。箇条の値は対象
+            self.assertEqual([w.split(":")[1] for w in strict], ["1", "5", "11"])
+            self.assertEqual([":2:" in w for w in loose], [True])
+
     def test_unknown_edge_fails(self):
         def mutate(c, _):
             c["slides"][2]["diagram"]["edges"][0]["to"] = "missing_node"

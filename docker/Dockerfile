@@ -1,6 +1,11 @@
 # 描画ツールチェーン（Node / LibreOffice / poppler / 日本語フォント）を固定するイメージ。
 # 第三者コード（npm 依存・LibreOffice）はホストで直接実行せず、このコンテナ内で実行する。
-FROM node:22-bookworm
+# ベースイメージは digest で固定する（タグの付け替えで環境が黙って変わるのを防ぐ）。更新は専用 PR で行う（docs/reproducibility.md）
+ARG BASE_IMAGE=node:22-bookworm@sha256:0e5f906573693feaa1e21057ebdcfdb5bd5021f050b2dc7c9deceb629c7da2a8
+FROM ${BASE_IMAGE}
+ARG BASE_IMAGE
+# ビルドの manifest に記録し、ベンチマーク差分の原因を環境と切り分けられるようにする
+ENV PSL_BASE_IMAGE=${BASE_IMAGE}
 
 # LibreOffice（PPTX→PDF）、poppler（PDF→PNG）、Noto CJK（日本語描画）、Python（検証・adapter）
 RUN apt-get update \

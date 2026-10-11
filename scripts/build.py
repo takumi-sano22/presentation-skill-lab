@@ -9,7 +9,9 @@ from __future__ import annotations
 import argparse
 import hashlib
 import html
+import importlib.metadata
 import json
+import os
 import re
 import struct
 import subprocess
@@ -63,6 +65,24 @@ def tool_version(cmd: list[str]) -> str:
         return "未検出"
     out = (p.stdout + p.stderr).strip()
     return out.splitlines()[0] if out else "未検出"
+
+
+# 版を記録する apt パッケージと Python パッケージ（docker/Dockerfile・requirements-dev.txt で幅指定のもの）
+APT_PACKAGES = ("libreoffice-impress", "poppler-utils", "fonts-noto-cjk", "fontconfig")
+PY_PACKAGES = ("PyYAML", "jsonschema")
+
+
+def package_versions() -> dict[str, str]:
+    versions = {}
+    for name in APT_PACKAGES:
+        v = tool_version(["dpkg-query", "-W", "-f=${Version}", name])
+        versions[f"apt:{name}"] = v if "no packages found" not in v else "未検出"
+    for name in PY_PACKAGES:
+        try:
+            versions[f"pip:{name}"] = importlib.metadata.version(name)
+        except importlib.metadata.PackageNotFoundError:
+            versions[f"pip:{name}"] = "未検出"
+    return versions
 
 
 # ---------------------------------------------------------------------------
@@ -668,6 +688,10 @@ def build(content_path: Path, design_path: Path, out: Path) -> dict:
             "node": tool_version(["node", "--version"]),
             "libreoffice": tool_version(["soffice", "--headless", "--version"]),
             "poppler": tool_version(["pdftoppm", "-v"]),
+            # 再現性の記録（#24）: ベースイメージ digest と、版を固定していない apt / pip 依存の実際の版
+            "base_image": os.environ.get("PSL_BASE_IMAGE", "未記録（Docker 外）"),
+            "python": sys.version.split()[0],
+            "packages": package_versions(),
         },
         "fonts": {"theme": theme_fonts, "pdf": fonts, "ja_fallback": tool_version(["fc-match", "sans-serif:lang=ja"])},
         "slides": len(slide_ids),

@@ -33,7 +33,7 @@ FOOTER_RESERVED = 0.5
 EXCEPTIONS_FILE = "qa-exceptions.yaml"
 CHECK_IDS = {"out-of-bounds", "text-overlap", "text-overflow", "min-font", "connector-crossing",
              "rasterized-table", "rasterized-chart", "rasterized-diagram", "missing-native-table",
-             "missing-native-chart"}
+             "missing-native-chart", "autofit-expansion"}
 
 
 @dataclass
@@ -50,7 +50,14 @@ class Shape:
     filled: bool = False
     flip: bool = False  # 線: flipH と flipV のどちらか一方だけなら右上がりの対角線
     insets: tuple[float, float, float, float] = (0.1, 0.05, 0.1, 0.05)  # 左・上・右・下（インチ）
-    autofit: bool = False  # 縮小して収める指定（normAutofit / shrink）
+    # 文字の自動調整（OOXML の bodyPr 子要素）。2 つは意味が逆なので区別する:
+    #   "norm" = normAutofit: 文字を縮小して枠に収める（枠は不変）
+    #   "shape" = spAutoFit: 枠そのものを文字に合わせて伸ばす（文字は縮まない。伸びた枠が他要素と衝突し得る）
+    autofit: str = ""
+    anchor: str = "t"  # 文字の縦位置。spAutoFit で枠が上下どちらへ伸びるかを決める
+    wrap: bool = True  # bodyPr wrap="none" なら折り返さず、spAutoFit で枠が横にも伸びる
+    # 段落ごとの水平位置（l / ctr / r。texts と同じ順）。折り返さない spAutoFit で各段落が左右どちらへ伸びるかを決める
+    aligns: list[str] = field(default_factory=list)
     font_scale: float = 1.0  # normAutofit に記録された縮小率（PowerPoint が保存した場合）
 
     @property
@@ -72,6 +79,12 @@ class Finding:
     severity: str = "error"  # error（FAIL）/ warning
 
 
+def paragraph_align(para: str) -> str:
+    """段落の水平位置（a:pPr の algn。省略時は左揃え）。"""
+    m = re.search(r'<a:pPr[^>]*\salgn="(\w+)"', para)
+    return m.group(1) if m else "l"
+
+
 def parse_shapes(xml: str) -> list[Shape]:
     shapes = []
     for m in re.finditer(r"<p:(sp|pic|graphicFrame|cxnSp)>.*?</p:\1>", xml, re.S):
@@ -83,6 +96,7 @@ def parse_shapes(xml: str) -> list[Shape]:
         x, y, cx, cy = (int(v) / EMU for v in off.groups())
         paras = re.findall(r"<a:p>.*?</a:p>|<a:p .*?</a:p>", block, re.S)
         texts = [html.unescape("".join(re.findall(r"<a:t(?:\s[^>]*)?>([^<]*)</a:t>", p))) for p in paras]
+        aligns = [paragraph_align(p) for p in paras]
         sizes = [int(v) / 100 for v in re.findall(r'<a:rPr[^>]*\ssz="(\d+)"', block)]
         graphic = "tbl" if "<a:tbl>" in block else ("chart" if "/chart\"" in block or "c:chart" in block else "")
         filled = bool(re.search(r"<p:spPr>.*?<a:solidFill>", block, re.S))
@@ -95,11 +109,14 @@ def parse_shapes(xml: str) -> list[Shape]:
             m = re.search(rf'{key}="(\d+)"', battrs)
             return int(m.group(1)) / EMU if m else default
         insets = (inset("lIns", 0.1), inset("tIns", 0.05), inset("rIns", 0.1), inset("bIns", 0.05))
-        autofit = "<a:normAutofit" in block or "<a:spAutoFit" in block
+        autofit = "norm" if "<a:normAutofit" in block else ("shape" if "<a:spAutoFit" in block else "")
+        anchor_m = re.search(r'anchor="(\w+)"', battrs)
         scale_m = re.search(r'<a:normAutofit[^>]*fontScale="(\d+)"', block)
         font_scale = int(scale_m.group(1)) / 100000 if scale_m else 1.0
         shapes.append(Shape(html.unescape(name_m.group(1)) if name_m else "", kind, x, y, cx, cy,
-                            [t for t in texts if t.strip()], sizes, graphic, filled, flip, insets, autofit, font_scale))
+                            [t for t in texts if t.strip()], sizes, graphic, filled, flip, insets, autofit=autofit, font_scale=font_scale,
+                            anchor=anchor_m.group(1) if anchor_m else "t", wrap='wrap="none"' not in battrs,
+                            aligns=[a for t, a in zip(texts, aligns) if t.strip()]))
     return shapes
 
 
@@ -113,7 +130,11 @@ def estimated_text_height(shape: Shape, pt: float | None = None) -> float:
     pt = pt or (max(shape.font_sizes) if shape.font_sizes else 18.0)
     left, top, right, bottom = shape.insets
     usable = max(0.1, shape.w - left - right)
-    lines = sum(max(1, -(-text_width_in(t, pt) // usable)) for t in shape.texts)
+    # 折り返さない spAutoFit の枠は段落ごとに1行（横へ伸びる）。それ以外は従来どおり枠幅で折り返して見積もる
+    if not shape.wrap and shape.autofit == "shape":
+        lines = len(shape.texts)
+    else:
+        lines = sum(max(1, -(-text_width_in(t, pt) // usable)) for t in shape.texts)
     return lines * pt * LINE_HEIGHT / 72 + top + bottom
 
 
@@ -172,8 +193,12 @@ def check_slide(sid: str, slide: dict, o_slide: dict, shapes: list[Shape]) -> li
             if area > 0.1 * min(a.w * a.h, b.w * b.h):
                 add("text-overlap", f"{a.name} / {b.name}", f"文字を持つ図形が重なります（「{a.text[:12]}」と「{b.text[:12]}」）")
     # geometry: 文字量の推定あふれ
+    visible = texted + [o for o in shapes if o.kind in ("pic", "graphicFrame")]
     for s in texted:
-        if s.autofit:
+        if s.autofit == "shape":
+            findings += check_shape_autofit(sid, s, visible)
+            continue
+        if s.autofit == "norm":
             # 縮小して収める枠はあふれないが、縮小後の実効サイズが最小を下回れば J-1 違反
             effective = autofit_font_pt(s)
             if effective < MIN_FONT_PT:
@@ -185,7 +210,6 @@ def check_slide(sid: str, slide: dict, o_slide: dict, shapes: list[Shape]) -> li
             # 空き領域に収まるだけなら見た目は崩れないため警告に留める
             spill = Shape(s.name, s.kind, s.x, s.y + s.h, s.w, need - s.h)
             # 文字図形に加え、画像・表・グラフ（可視の内容）との衝突も崩れとみなす。文字のない装飾図形は除く
-            visible = texted + [o for o in shapes if o.kind in ("pic", "graphicFrame")]
             collides = [o for o in visible if o is not s and spill.intersection(o) > 0.01]
             beyond = s.y + need > SLIDE_H - FOOTER_RESERVED
             severity = "error" if collides or beyond else "warning"
@@ -226,6 +250,39 @@ def check_slide(sid: str, slide: dict, o_slide: dict, shapes: list[Shape]) -> li
     if slide.get("chart") and not any(s.graphic == "chart" for s in shapes):
         add("missing-native-chart", "chart", "グラフがネイティブのグラフオブジェクトになっていません")
     return findings
+
+
+def check_shape_autofit(sid: str, s: Shape, visible: list[Shape]) -> list[Finding]:
+    """spAutoFit の枠が文字量に合わせて伸びたとき、伸びた部分が他の要素やスライド端と衝突しないか。
+
+    PowerPoint は開いた時点で枠の大きさを文字に合わせ直す。保存された枠の大きさだけを見ると見逃す。
+      - 縦: 縦位置（anchor）で決まり、上揃えは下へ、下揃えは上へ、中央揃えは上下へ半分ずつ伸びる。
+      - 横: 折り返さない枠（wrap="none"）だけ。段落の水平位置で決まり、左揃えは右へ、右揃えは左へ、中央は左右へ伸びる。
+    """
+    pt = max(s.font_sizes) if s.font_sizes else 18.0
+    left_in, _, right_in, _ = s.insets
+    # 横: 段落ごとに必要幅と水平位置から左右の伸長量を求め、全段落の最大を合成する（長い段落が右揃えなら左へ伸びる）
+    grow_left = grow_right = 0.0
+    if not s.wrap:
+        for text, align in zip(s.texts, s.aligns or ["l"] * len(s.texts)):
+            extra = max(0.0, text_width_in(text, pt) + left_in + right_in - s.w)
+            left = {"r": extra, "ctr": extra / 2}.get(align, 0.0)
+            grow_left, grow_right = max(grow_left, left), max(grow_right, extra - left)
+    grow_h = max(0.0, estimated_text_height(s) - s.h)
+    if grow_left + grow_right <= 0.05 and grow_h <= 0.05:
+        return []
+    up = {"b": grow_h, "ctr": grow_h / 2}.get(s.anchor, 0.0)
+    x0, y0, w, h = s.x - grow_left, s.y - up, s.w + grow_left + grow_right, s.h + grow_h
+    expanded = Shape(s.name, s.kind, x0, y0, w, h)
+    original = Shape(s.name, s.kind, s.x, s.y, s.w, s.h)
+    # 伸びた部分だけを見る（元の枠との重なりは text-overlap が担当）
+    collides = [o for o in visible if o is not s and expanded.intersection(o) - original.intersection(o) > 0.01]
+    outside = x0 < -0.01 or y0 < -0.01 or x0 + w > SLIDE_W + 0.01 or y0 + h > SLIDE_H + 0.01
+    if not collides and not outside:
+        return []
+    where = f"「{collides[0].text[:10] or collides[0].name}」と重なる" if collides else "スライド外に出る"
+    return [Finding(sid, "autofit-expansion", s.name,
+                    f"図形の自動伸長（spAutoFit）で枠が約 {w:.2f}x{h:.2f}in まで伸び、{where}「{s.text[:16]}」")]
 
 
 def segment_crosses(seg: Shape, box: Shape, samples: int = 40) -> bool:
