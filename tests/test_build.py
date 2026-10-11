@@ -77,6 +77,18 @@ class BuildCheckTests(unittest.TestCase):
         pptx = fake_pptx(self.dir / "f.pptx", [["x"]])
         self.assertTrue(build.check_content_in_pptx(self.content, pptx)[0].startswith("PPTX のスライド数"))
 
+    def test_cli_rejects_broken_yaml_without_traceback(self):
+        broken = self.dir / "content.yaml"
+        broken.write_text("slides: [unclosed\n", encoding="utf-8")
+        r = subprocess.run([sys.executable, str(ROOT / "scripts/build.py"), "--content", str(broken),
+                            "--design", str(DESIGN), "--out", str(self.dir / "o")], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 1)
+        self.assertNotIn("Traceback", r.stderr)
+
+    def test_missing_command_is_build_error(self):
+        with self.assertRaises(build.BuildError):
+            build.run(["psl-no-such-command-xyz"])
+
     def test_font_checks(self):
         ja = {"name": "AAAAAA+NotoSansCJKjp-Regular", "type": "CID Type 0C", "embedded": True, "unicode": True}
         self.assertEqual(build.check_fonts([ja]), [])

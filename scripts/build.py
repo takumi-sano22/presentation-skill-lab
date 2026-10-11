@@ -27,6 +27,8 @@ ROOT = Path(__file__).resolve().parent.parent
 LOCK = json.loads((ROOT / "upstream.lock.json").read_text(encoding="utf-8"))
 RENDERER = ROOT / LOCK["path"] / "scripts" / "build_deck_pptxgenjs.js"
 PNG_DPI = 110
+# LibreOffice 等のハングでビルドが止まり続けないための上限（秒）
+COMMAND_TIMEOUT = 600
 
 
 class BuildError(RuntimeError):
@@ -39,7 +41,12 @@ def sha256_file(path: Path) -> str:
 
 def run(cmd: list[str], **kw) -> str:
     """外部コマンドを実行し、失敗時は出力を添えて BuildError にする。"""
-    p = subprocess.run(cmd, capture_output=True, text=True, check=False, **kw)
+    try:
+        p = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=COMMAND_TIMEOUT, **kw)
+    except subprocess.TimeoutExpired as exc:
+        raise BuildError(f"{cmd[0]} が {COMMAND_TIMEOUT} 秒以内に終了しませんでした") from exc
+    except OSError as exc:
+        raise BuildError(f"{cmd[0]} を実行できません: {exc}") from exc
     if p.returncode != 0:
         raise BuildError(f"{cmd[0]} が失敗しました (exit {p.returncode}):\n{p.stdout}\n{p.stderr}")
     return p.stdout + p.stderr
@@ -335,7 +342,7 @@ def main() -> int:
         deck_id = adapter.validate.load_yaml(a.content).get("deck_id", "deck")
         out = a.out or ROOT / "build" / deck_id
         m = build(a.content, a.design, out)
-    except (BuildError, ValueError, OSError) as exc:
+    except (BuildError, ValueError, OSError, adapter.validate.yaml.YAMLError) as exc:
         print(f"FAIL: {exc}", file=sys.stderr)
         return 1
     if m["checks"]["non_content_text"]:
