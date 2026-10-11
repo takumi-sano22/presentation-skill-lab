@@ -141,6 +141,8 @@ class AdapterTests(unittest.TestCase):
             "図を表layoutで": lambda c, d: c["slides"][3].__setitem__("diagram", c["slides"][2]["diagram"]),
             "図なしでdiagram_mode": lambda c, d: d["overrides"].__setitem__("s002", {"layout": "claim", "diagram_mode": "native"}),
             "円グラフ": lambda c, d: c["slides"][4]["chart"].__setitem__("type", "pie"),
+            "NaN値": lambda c, d: c["slides"][4]["chart"]["series"][0]["values"].__setitem__(0, float("nan")),
+            "無限大値": lambda c, d: c["slides"][4]["chart"]["series"][0]["values"].__setitem__(1, float("inf")),
         }
         for name, mutate in cases.items():
             with self.subTest(name):
@@ -191,6 +193,13 @@ class AdapterTests(unittest.TestCase):
                                 "--design", str(DESIGN), "--output", str(Path(d) / "o.json")], capture_output=True, text=True)
             self.assertEqual(r.returncode, 1)
             self.assertIn("FAIL", r.stderr)
+            self.assertNotIn("Traceback", r.stderr)
+
+    def test_cli_write_failure_is_reported(self):
+        with tempfile.TemporaryDirectory() as d:
+            r = subprocess.run([sys.executable, str(ROOT / "scripts/adapter.py"), "--content", str(CONTENT),
+                                "--design", str(DESIGN), "--output", d], capture_output=True, text=True)
+            self.assertEqual(r.returncode, 1)
             self.assertNotIn("Traceback", r.stderr)
 
     def test_section_with_title_only_is_supported(self):

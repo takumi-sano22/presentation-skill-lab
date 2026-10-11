@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import sys
 from pathlib import Path
@@ -68,8 +69,8 @@ class ContentMismatch(ValueError):
 
 
 def canonical_json(value: object) -> str:
-    """正規化 JSON（キー順固定・UTF-8・末尾改行）。ハッシュ安定性の基準。"""
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, indent=2) + "\n"
+    """正規化 JSON（キー順固定・UTF-8・末尾改行）。ハッシュ安定性の基準。NaN/Infinity は標準 JSON でないため拒否。"""
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, indent=2, allow_nan=False) + "\n"
 
 
 def sha256_text(text: str) -> str:
@@ -86,6 +87,8 @@ def format_number(value: float | int) -> str:
     """数値の文字列表現を固定する（20 と 20.0 を区別しない）。"""
     if isinstance(value, bool):
         raise UnsupportedContent(f"真偽値は数値として扱えません: {value}")
+    if not math.isfinite(value):
+        raise UnsupportedContent(f"有限でない数値は扱えません: {value}")
     return str(int(value)) if float(value).is_integer() else repr(float(value))
 
 
@@ -422,11 +425,12 @@ def main() -> int:
     try:
         content, design = load_and_validate(a.content, a.design)
         text = canonical_json(convert(content, design, a.content.parent, a.output.parent))
+        # 書き込み失敗（権限・既存ディレクトリ・容量不足）も入力エラーと同じ FAIL 応答にする
+        a.output.parent.mkdir(parents=True, exist_ok=True)
+        a.output.write_text(text, encoding="utf-8")
     except (ValueError, OSError, validate.yaml.YAMLError) as exc:
         print(f"FAIL: {exc}", file=sys.stderr)
         return 1
-    a.output.parent.mkdir(parents=True, exist_ok=True)
-    a.output.write_text(text, encoding="utf-8")
     unapplied = json.loads(text)["psl"]["unapplied_design"]
     if unapplied:
         print(f"WARN: 上流レンダラ未対応のため未適用の design 指定: {', '.join(unapplied)}", file=sys.stderr)
