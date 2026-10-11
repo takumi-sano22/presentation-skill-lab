@@ -120,6 +120,10 @@ class LayoutTests(unittest.TestCase):
         too_long["nodes"][0]["label"] = "とても長いノード名" * 4
         with self.assertRaises(diagram.LayoutError):
             diagram.layout(too_long)
+        long_group = copy.deepcopy(SAMPLE)
+        long_group["nodes"][0]["group"] = "とても長い区画名の利用者側ゾーン"
+        with self.assertRaises(diagram.LayoutError):
+            diagram.layout(long_group)
         crowded = {"nodes": [{"id": f"n{i}", "label": f"N{i}"} for i in range(12)],
                    "edges": [{"from": "n0", "to": f"n{i}"} for i in range(1, 12)]}
         with self.assertRaises(diagram.LayoutError):

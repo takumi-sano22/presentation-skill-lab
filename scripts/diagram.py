@@ -20,6 +20,7 @@ NODE_H_WITH_DESC = 0.92
 DESC_FONT_PT = 9
 GROUP_PAD = 0.12
 GROUP_LABEL_H = 0.24
+GROUP_FONT_PT = 9
 LEGEND_H = 0.28
 # 同じノード間の並行辺の間隔と上限（ノード高さの中に収める）
 PARALLEL_GAP = 0.16
@@ -229,6 +230,7 @@ def layout(diagram: dict) -> dict:
         "node_font_pt": NODE_FONT_PT,
         "desc_font_pt": DESC_FONT_PT,
         "edge_font_pt": EDGE_FONT_PT,
+        "group_font_pt": GROUP_FONT_PT,
         "nodes": [{"id": n["id"], "label": n["label"], "description": n.get("description", ""),
                    "kind": n.get("kind", ""), **boxes[n["id"]].as_dict()} for n in nodes],
         "edges": [dict(e, dash=EDGE_KINDS[e["kind"]][1]) for e in edge_shapes],
@@ -287,7 +289,7 @@ def place_edge_labels(result: dict, gap_x: float) -> None:
 
 def group_label_boxes(result: dict) -> list[Box]:
     """区画名の文字が占める領域（区画枠の左上の見出し帯）。"""
-    return [Box(g["x"] + 0.08, g["y"] + 0.02, min(g["w"] - 0.16, text_width_in(g["name"], 9) + 0.1), GROUP_LABEL_H - 0.04)
+    return [Box(g["x"] + 0.08, g["y"] + 0.02, min(g["w"] - 0.16, text_width_in(g["name"], GROUP_FONT_PT) + 0.1), GROUP_LABEL_H - 0.04)
             for g in result["groups"]]
 
 
@@ -323,6 +325,9 @@ def check_geometry(result: dict) -> None:
             errors.append(f"ノード {n['id']} の説明「{n['description']}」が箱に収まりません")
     for g in result["groups"]:
         gb = Box(g["x"], g["y"], g["w"], g["h"])
+        # 区画名は枠内の見出し帯（左右余白 0.08 in）に1行で収まること
+        if text_width_in(g["name"], GROUP_FONT_PT) > g["w"] - 0.16:
+            errors.append(f"区画名「{g['name']}」が区画の幅に収まりません")
         if gb.y < area.y - 1e-6 or gb.x < area.x - GROUP_PAD - 1e-6 or gb.x + gb.w > area.x + area.w + GROUP_PAD + 1e-6:
             errors.append(f"区画 {g['name']} が描画領域からはみ出します")
         for nid, box in boxes.items():

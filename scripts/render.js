@@ -102,7 +102,7 @@ function drawDiagram(pptx, pSlide, lay, preset) {
     });
     pSlide.addText(g.name, {
       x: g.x + 0.08, y: g.y + 0.02, w: g.w - 0.16, h: 0.22, objectName: `group-label:${g.name}`,
-      fontFace: font, fontSize: 9, bold: true, color: preset.text_muted, valign: 'middle', margin: 0,
+      fontFace: font, fontSize: lay.group_font_pt, bold: true, color: preset.text_muted, valign: 'middle', margin: 0,
     });
   }
   for (const e of lay.edges) {
