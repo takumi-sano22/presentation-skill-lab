@@ -13,3 +13,5 @@ description: content.yaml の文言や数値を変えずに、技術スライド
 6. `slide-qa` の基準で見直し、変更 Slide ID と理由を報告する。
 
 `scripts/build` で PPTX/PDF/PNG に変換できる。design.yaml の `theme`（technical-light / technical-dark、フォント、配色トークン）は適用済み。`density` は上流未対応のため未適用（`unapplied_design` に列挙）。日本語テーマ規約 J-1〜J-8（`docs/design-rules.md`）に従い、配色はコントラスト検査を通すこと。
+
+図（architecture / flow）は `diagram_mode: native` で自動配置・ネイティブ描画される。座標は指定しない。配置が崩れる（重なり・ラベル衝突等）場合はビルドが FAIL するので、ノード数・ラベル長を content 担当と調整するか、スライド分割を提案する。

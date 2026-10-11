@@ -17,6 +17,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import diagram as diagram_layout  # noqa: E402  ネイティブ図の配置計算
 import validate  # noqa: E402  入力契約の検証を共有する
 
 ADAPTER_VERSION = "0.1.0"
@@ -247,7 +248,14 @@ def outline_semantic_items(outline: dict) -> list[tuple[str, str, str]]:
             if s.get("footer") != " ／ ".join(meta["cover_body"]):
                 raise ContentMismatch(f"{sid}: 表紙本文の footer が一致しません")
             bullets = list(meta["cover_body"])
-        if diagram:
+        if diagram and meta.get("diagram_layout"):
+            # ネイティブ図: 配置結果のノード・辺が図の定義と一致すること（描画対象の取りこぼし・改変を検出）
+            lay = meta["diagram_layout"]
+            if ([(n["id"], n["label"]) for n in lay["nodes"]] != [(n["id"], n["label"]) for n in diagram["nodes"]] or
+                    [(e["from"], e["to"], e["label"], e["kind"]) for e in lay["edges"]] !=
+                    [(e["from"], e["to"], e.get("label", ""), e.get("kind", "data")) for e in diagram.get("edges", [])]):
+                raise ContentMismatch(f"{sid}: 図の配置結果が図の定義と一致しません")
+        elif diagram:
             # 図のフォールバック行は bullets 末尾に付く。本文と分けて復元する
             fallback = diagram_lines(diagram)
             if bullets[len(bullets) - len(fallback):] != fallback:
@@ -371,11 +379,17 @@ def convert_slide(s: dict, override: dict) -> dict:
 
     if d := s.get("diagram"):
         if override.get("diagram_mode", "native") != "native":
-            raise UnsupportedContent(f"{sid}: diagram_mode '{override['diagram_mode']}' は未対応（#6/#7）")
-        # ネイティブ図（#6）までは全ラベル・接続をテキストで保持する明示的フォールバック
+            raise UnsupportedContent(f"{sid}: diagram_mode '{override['diagram_mode']}' は未対応（#7）")
         meta["diagram"] = d
-        meta["fallback"] = "diagram-as-text"
-        bullets += diagram_lines(d)
+        if key == "er":
+            # ER 図の複雑な関係は当面ネイティブ配置しない（#7 で SVG）。全ラベル・接続をテキスト行で保持する明示的フォールバック
+            meta["fallback"] = "diagram-as-text"
+            bullets += diagram_lines(d)
+        else:
+            if bullets:
+                raise UnsupportedContent(f"{sid}: 図のスライドに本文は置けません（図の領域と重なるため。注記は notes を使う）")
+            # 構造（ノード ID・接続）だけから決定論的に配置する。崩れる場合は LayoutError で FAIL
+            meta["diagram_layout"] = diagram_layout.layout(d)
 
     if variant == "table" and bullets:
         # 上流の表描画は bullets を表示しないため、本文は表の脚注（可視）として渡す

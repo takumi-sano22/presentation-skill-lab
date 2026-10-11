@@ -2,7 +2,7 @@
 
 Claude Code と ChatGPT の双方から、**中身とデザインを分離**して技術系スライドを生成するためのスキル開発リポジトリ。
 
-> **状態: Phase 1 着手中。** 上流レンダラ（`vendor/presentation-skill` v0.14.0）の固定と描画環境の doctor まで実装済みです。`content.yaml`/`design.yaml` → `outline.json` の adapter と、PPTX/PDF/PNG/静的プレビューを出す共通ビルド CLI（`scripts/build`）まで実装済みです。日本語テーマ（technical-light / technical-dark）まで実装済み、ネイティブ図（#6）・アセット管理（#7）・総合QA（#8）は**未実装**です。`scripts/validate.py` は共通データ契約と参照の検査のみです。
+> **状態: Phase 1 着手中。** 上流レンダラ（`vendor/presentation-skill` v0.14.0）の固定と描画環境の doctor まで実装済みです。`content.yaml`/`design.yaml` → `outline.json` の adapter と、PPTX/PDF/PNG/静的プレビューを出す共通ビルド CLI（`scripts/build`）まで実装済みです。日本語テーマ（technical-light / technical-dark）とネイティブ技術図まで実装済み、アセット管理（#7）・総合QA（#8）は**未実装**です。`scripts/validate.py` は共通データ契約と参照の検査のみです。
 
 ## 確定事項
 
@@ -124,6 +124,14 @@ scripts/build \
 - `theme.name`（technical-light → 上流 arctic-minimal、technical-dark → midnight-neon を基底）と、`theme.fonts`・`theme.colors` のトークンを `scripts/render.js` が上流プリセットへ注入して描画する（上流コードは改変しない）。
 - フォント名は design の値（例: Noto Sans JP）を PPTX の欧文・和文の両方に書き、描画環境では fontconfig の別名で Noto Sans CJK JP に解決する。
 - 配色コントラスト（本文 4.5:1 等）を満たさないテーマは FAIL。タイトル長・泣き別れは WARN。規約と例外・出典は [`docs/design-rules.md`](docs/design-rules.md)「日本語テーマ規約」。
+
+## ネイティブ技術図（architecture / flow）
+
+- content.yaml の `diagram.nodes / edges`（任意で `group`・`description`・`kind`）だけから、`scripts/diagram.py` が**決定論的に配置**する（座標を LLM や人が書かない）。位相順の最長路で層を決め、2層以上をまたぐ辺は中継点で迂回、層内の並びは重心法で交差を減らす。同じ入力からは常に同じ座標になる。
+- `scripts/render.js` がノード（種別ごとの形: actor=楕円、policy=六角形、datastore=円柱、tool=角丸、その他=矩形）、辺（終点に矢印、種別ごとの線種: データ=実線・制御=破線…）、辺ラベル、区画枠、凡例を **PowerPoint のネイティブ図形・線・テキスト**として描く。画像化しない。
+- 配置時に検査して FAIL: ノードの重なり・領域はみ出し、辺がノードを貫通、ラベルが箱に収まらない・他と重なる、区画に区画外ノードが入る。
+- ビルド時に PPTX 実体の座標を読み、全ノード図形の存在・重なり0、各辺の始点/終点が正しいノード境界にあり終点に矢印があること、content に無いノード・辺が無いことを検査（manifest `checks.diagram_errors`、交差数は `checks.diagram_crossings`）。
+- ER 図（`type/layout: er`）は #7 まで全ラベル・接続をテキスト行で表示する明示的フォールバック（`psl.fallback`）。図のスライドに本文は置けない（注記は `notes`）。
 
 ## WSL でのセットアップ（入力検証のみ）
 

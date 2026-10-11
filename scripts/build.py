@@ -22,6 +22,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import adapter  # noqa: E402
+import diagram as diagram_layout  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 LOCK = json.loads((ROOT / "upstream.lock.json").read_text(encoding="utf-8"))
@@ -153,7 +154,19 @@ def pptx_units(pptx: Path) -> list[list[str]]:
     return units
 
 
-def expected_items(slide: dict) -> tuple[list[str], list[str]]:
+def diagram_labels(slide: dict) -> list[str]:
+    """ネイティブ図で個別の図形として現れる文字列（ノード名・説明・辺ラベル・区画名）。"""
+    d = slide["diagram"]
+    labels = [n["label"] for n in d["nodes"]] + [n["description"] for n in d["nodes"] if n.get("description")]
+    labels += [e["label"] for e in d.get("edges", []) if e.get("label")]
+    return labels + list(dict.fromkeys(n["group"] for n in d["nodes"] if n.get("group")))
+
+
+def is_native_diagram(outline: dict | None, index: int) -> bool:
+    return bool(outline and outline["slides"][index]["psl"].get("diagram_layout"))
+
+
+def expected_items(slide: dict, native_diagram: bool = False) -> tuple[list[str], list[str]]:
     """スライド上に現れるべき内容を (完全一致で照合する原子値, 部分照合する文章) に分ける。
 
     原子値: 表ヘッダ・セル、グラフのカテゴリ・系列名・値（短い値の部分一致で見逃さないため完全一致）。
@@ -171,9 +184,13 @@ def expected_items(slide: dict) -> tuple[list[str], list[str]]:
         atoms += ch["categories"] + [se["name"] for se in ch["series"]]
         atoms += [adapter.format_number(v) for se in ch["series"] for v in se["values"]]
         texts.append(adapter.chart_unit_title(ch["unit"]))
-    if d := slide.get("diagram"):
-        # 図はテキスト行フォールバック（#6 まで）。ノード・矢印ラベルは各行に含まれる
-        texts += adapter.diagram_lines(d)
+    if slide.get("diagram"):
+        if native_diagram:
+            # ネイティブ図: ノード・辺ラベル等は各図形の段落として現れるため原子値で照合する
+            atoms += diagram_labels(slide)
+        else:
+            # テキスト行フォールバック（ER 図）: ノード・矢印ラベルは各行に含まれる
+            texts += adapter.diagram_lines(slide["diagram"])
     return [a for a in atoms if a], [t for t in texts if t]
 
 
@@ -203,14 +220,15 @@ def match_items(atoms: list[str], texts: list[str], units: list[str]) -> list[st
     return missing
 
 
-def check_content_in_pptx(content: dict, pptx: Path) -> list[str]:
+def check_content_in_pptx(content: dict, pptx: Path, outline: dict | None = None) -> list[str]:
     """PPTX の各スライドに内容が欠落なく（出現回数も含めて）現れるかを検査する（上流の切り詰め・欠落の検出）。"""
     units = pptx_units(pptx)
     if len(units) != len(content["slides"]):
         return [f"PPTX のスライド数 {len(units)} が content の {len(content['slides'])} と一致しません"]
     missing = []
-    for slide, slide_units in zip(content["slides"], units):
-        missing += [f"{slide['id']}: 「{m}」" for m in match_items(*expected_items(slide), slide_units)]
+    for i, (slide, slide_units) in enumerate(zip(content["slides"], units)):
+        items = expected_items(slide, is_native_diagram(outline, i))
+        missing += [f"{slide['id']}: 「{m}」" for m in match_items(*items, slide_units)]
     return missing
 
 
@@ -223,7 +241,9 @@ def find_non_content_text(content: dict, outline: dict, pptx: Path) -> dict[str,
     # 出典ラベル（adapter が deck_style.footer_source_label で指定）は装飾ではなく既知の表示枠
     label = normalize(outline["deck_style"].get("footer_source_label", "") + ":")
     for slide, o_slide, units in zip(content["slides"], outline["slides"], pptx_units(pptx)):
-        atoms, texts = expected_items(slide)
+        atoms, texts = expected_items(slide, bool(o_slide["psl"].get("diagram_layout")))
+        # 図の凡例（線種の和文ラベル）は配置計算が辺の種類から導出した表示
+        texts += [item["label"] for item in o_slide["psl"].get("diagram_layout", {}).get("legend", [])]
         # 表紙キッカー（機密区分ラベル）は adapter が metadata から導出し往復検査済みの表示
         allowed = normalize("".join(atoms + texts + o_slide.get("bullets", []) + [o_slide.get("footer", ""),
                                                                                   o_slide.get("kicker", "")]))
@@ -238,15 +258,18 @@ def pdf_page_texts(pdf: Path, pages: int) -> list[str]:
     return [run(["pdftotext", "-f", str(i), "-l", str(i), str(pdf), "-"]) for i in range(1, pages + 1)]
 
 
-def check_content_in_pdf(content: dict, pdf: Path, pages: int) -> list[str]:
+def check_content_in_pdf(content: dict, pdf: Path, pages: int, outline: dict | None = None) -> list[str]:
     """PDF の各ページから抽出したテキストに内容が現れるか（LibreOffice 変換での欠落・文字化けの検出）。
 
     表セル等の原子値は行単位の完全一致、文章はページ全体（折返しを無視）からの消費型照合。
     グラフの軸ラベル・数値は描画方式で抽出が不安定なため対象外（PPTX 側のグラフ XML で検査済み）。
     """
     missing = []
-    for slide, text in zip(content["slides"], pdf_page_texts(pdf, pages)):
+    for i, (slide, text) in enumerate(zip(content["slides"], pdf_page_texts(pdf, pages))):
         atoms, texts = expected_items(slide)
+        if is_native_diagram(outline, i):
+            # 図形内のラベルは箱の幅で折り返されて複数行になるため、PDF では文章として消費照合する
+            texts = [t for t in texts if t not in adapter.diagram_lines(slide["diagram"])] + diagram_labels(slide)
         if ch := slide.get("chart"):
             chart_atoms = set(ch["categories"]) | {se["name"] for se in ch["series"]}
             chart_atoms |= {adapter.format_number(v) for se in ch["series"] for v in se["values"]}
@@ -262,6 +285,89 @@ def check_content_in_pdf(content: dict, pdf: Path, pages: int) -> list[str]:
                 missing.append(f"{slide['id']}: 「{a}」")
         missing += [f"{slide['id']}: 「{m}」" for m in match_items([], texts, ["".join(lines)])]
     return missing
+
+
+EMU_PER_INCH = 914400
+# 線の端点がノード境界上にあるとみなす許容差（インチ）
+EDGE_ENDPOINT_TOLERANCE = 0.03
+
+
+def pptx_named_shapes(pptx: Path, index: int) -> dict[str, dict]:
+    """スライド index（0始まり）の名前付き図形 → {x, y, w, h, flipH, flipV, arrow}（インチ）。"""
+    with zipfile.ZipFile(pptx) as z:
+        xml = z.read(slide_part_names(z)[index]).decode("utf-8")
+    shapes = {}
+    for m in re.finditer(r"<p:(sp|cxnSp)>.*?</p:\1>", xml, re.S):
+        block = m.group(0)
+        name = html.unescape(re.search(r'<p:cNvPr[^>]*name="([^"]*)"', block).group(1))
+        xfrm = re.search(r"<a:xfrm([^>]*)>\s*<a:off x=\"(-?\d+)\" y=\"(-?\d+)\"/>\s*<a:ext cx=\"(\d+)\" cy=\"(\d+)\"/>", block)
+        if not xfrm:
+            continue
+        attrs, x, y, cx, cy = xfrm.groups()
+        shapes[name] = {"x": int(x) / EMU_PER_INCH, "y": int(y) / EMU_PER_INCH,
+                        "w": int(cx) / EMU_PER_INCH, "h": int(cy) / EMU_PER_INCH,
+                        "flipH": 'flipH="1"' in attrs, "flipV": 'flipV="1"' in attrs,
+                        "arrow": bool(re.search(r'<a:tailEnd type="(?!none)', block))}
+    return shapes
+
+
+def on_boundary(point: tuple[float, float], box: dict, tol: float = EDGE_ENDPOINT_TOLERANCE) -> bool:
+    x, y = point
+    inside_outer = box["x"] - tol <= x <= box["x"] + box["w"] + tol and box["y"] - tol <= y <= box["y"] + box["h"] + tol
+    inside_inner = box["x"] + tol < x < box["x"] + box["w"] - tol and box["y"] + tol < y < box["y"] + box["h"] - tol
+    return inside_outer and not inside_inner
+
+
+def check_diagram_in_pptx(content: dict, outline: dict, pptx: Path) -> list[str]:
+    """ネイティブ図の表示が関係の意味と一致するかを PPTX 実体の座標で検査する。
+
+    - content の全ノードが node:<id> 図形として1つずつあり、互いに重ならない
+    - 全辺が edge:<辺番号>:<from>-><to>#i の線分列として連続し、始点が from の境界、終点が to の境界にあり、終点に矢印がある
+    - content に無いノード・辺の図形がない（接続先不明 0）
+    """
+    errors = []
+    for index, (slide, o_slide) in enumerate(zip(content["slides"], outline["slides"])):
+        if not o_slide["psl"].get("diagram_layout"):
+            continue
+        sid, d = slide["id"], slide["diagram"]
+        shapes = pptx_named_shapes(pptx, index)
+        nodes = {n["id"]: shapes.get(f"node:{n['id']}") for n in d["nodes"]}
+        errors += [f"{sid}: ノード {nid} の図形がありません" for nid, box in nodes.items() if box is None]
+        boxes = {k: v for k, v in nodes.items() if v}
+        ids = sorted(boxes)
+        for i, a in enumerate(ids):
+            for b in ids[i + 1:]:
+                A, B = boxes[a], boxes[b]
+                if not (A["x"] + A["w"] <= B["x"] or B["x"] + B["w"] <= A["x"] or
+                        A["y"] + A["h"] <= B["y"] or B["y"] + B["h"] <= A["y"]):
+                    errors.append(f"{sid}: ノード {a} と {b} が重なります")
+        expected_edges = {f"{i}:{e['from']}->{e['to']}" for i, e in enumerate(d.get("edges", []))}
+        known_nodes = {f"node:{n['id']}" for n in d["nodes"]}
+        for name in shapes:
+            if name.startswith("node:") and name not in known_nodes:
+                errors.append(f"{sid}: content に無いノード図形 {name}")
+            if name.startswith("edge:") and name[5:].split("#")[0] not in expected_edges:
+                errors.append(f"{sid}: content に無い辺 {name}")
+        for i, e in enumerate(d.get("edges", [])):
+            key = f"{i}:{e['from']}->{e['to']}"
+            segs = sorted(((int(n.split("#")[1]), v) for n, v in shapes.items() if n.startswith(f"edge:{key}#")))
+            if not segs:
+                errors.append(f"{sid}: 辺 {key} の線がありません")
+                continue
+            pts = []
+            for _, v in segs:
+                start = (v["x"] + (v["w"] if v["flipH"] else 0), v["y"] + (v["h"] if v["flipV"] else 0))
+                end = (v["x"] + (0 if v["flipH"] else v["w"]), v["y"] + (0 if v["flipV"] else v["h"]))
+                if pts and (abs(pts[-1][0] - start[0]) > 0.01 or abs(pts[-1][1] - start[1]) > 0.01):
+                    errors.append(f"{sid}: 辺 {key} の線分が途切れています")
+                pts += [start, end]
+            if e["from"] in boxes and not on_boundary(pts[0], boxes[e["from"]]):
+                errors.append(f"{sid}: 辺 {key} の始点が {e['from']} の境界にありません")
+            if e["to"] in boxes and not on_boundary(pts[-1], boxes[e["to"]]):
+                errors.append(f"{sid}: 辺 {key} の終点が {e['to']} の境界にありません")
+            if not segs[-1][1]["arrow"]:
+                errors.append(f"{sid}: 辺 {key} の終点に矢印がありません（向きが表示されない）")
+    return errors
 
 
 # 和文タイトルの長さ上限（全角換算、半角は0.5字）。docs/design-rules.md J-2（carnot 規約の翻案）
@@ -397,9 +503,10 @@ def build(content_path: Path, design_path: Path, out: Path) -> dict:
 
     # 6. 検査（内容欠落・フォント埋め込み・和文組版）
     fonts = pdf_fonts(pdf)
-    missing = check_content_in_pptx(content, pptx)
-    missing_pdf = check_content_in_pdf(content, pdf, pages)
+    missing = check_content_in_pptx(content, pptx, outline)
+    missing_pdf = check_content_in_pdf(content, pdf, pages, outline)
     ja_errors, ja_warnings = check_japanese(content, pdf_page_texts(pdf, pages))
+    diagram_errors = check_diagram_in_pptx(content, outline, pptx)
     font_errors = check_fonts(fonts)
     non_content = find_non_content_text(content, outline, pptx)
 
@@ -433,6 +540,9 @@ def build(content_path: Path, design_path: Path, out: Path) -> dict:
             "content_missing_in_pptx": missing,
             "content_missing_in_pdf": missing_pdf,
             "font_errors": font_errors,
+            "diagram_errors": diagram_errors,
+            "diagram_crossings": {s["psl"]["slide_id"]: diagram_layout.count_crossings(s["psl"]["diagram_layout"])
+                                  for s in outline["slides"] if s["psl"].get("diagram_layout")},
             "japanese_errors": ja_errors,
             # 警告（FAIL にしない）: 和文組版の目安違反。内容担当がタイトルを見直す判断材料
             "japanese_warnings": ja_warnings,
@@ -442,7 +552,7 @@ def build(content_path: Path, design_path: Path, out: Path) -> dict:
     }
     (out / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     write_gallery(out, content["metadata"]["title"], pngs, slide_ids, "manifest.json")
-    errors = [f"PPTX {e}" for e in missing] + [f"PDF {e}" for e in missing_pdf] + font_errors + ja_errors
+    errors = [f"PPTX {e}" for e in missing] + [f"PDF {e}" for e in missing_pdf] + font_errors + ja_errors + diagram_errors
     if errors:
         raise BuildError("検査 FAIL:\n" + "\n".join(f" - {e}" for e in errors))
     return manifest
