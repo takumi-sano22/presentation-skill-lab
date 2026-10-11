@@ -111,7 +111,7 @@ class AdapterTests(unittest.TestCase):
             d["overrides"]["s004"] = {"layout": "table", "density": "dense"}
         a, b = self.convert(), self.convert(restyle)
         self.assertEqual(adapter.outline_semantic_items(a), adapter.outline_semantic_items(b))
-        self.assertNotEqual(a["deck_style"], b["deck_style"])
+        self.assertNotEqual(a["psl"]["render"], b["psl"]["render"])
 
     def test_unsupported_fails_explicitly(self):
         cases = {

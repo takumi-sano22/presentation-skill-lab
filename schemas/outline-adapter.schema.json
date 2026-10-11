@@ -10,9 +10,8 @@
     "deck_style": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["style_preset"],
+      "required": ["renderer_role_systems_v1", "footer_source_label"],
       "properties": {
-        "style_preset": {"type": "string"},
         "renderer_role_systems_v1": {"type": "object"},
         "footer_source_label": {"type": "string"}
       }
@@ -20,8 +19,13 @@
     "document_metadata": {"type": "object"},
     "psl": {
       "type": "object",
-      "required": ["adapter_version", "schema_version", "deck_id", "content_sha256", "synthetic", "classification", "metadata", "theme"],
+      "required": ["adapter_version", "schema_version", "deck_id", "content_sha256", "synthetic", "classification", "metadata", "theme", "render"],
       "properties": {
+        "render": {
+          "type": "object",
+          "required": ["style_preset"],
+          "properties": {"style_preset": {"type": "string"}}
+        },
         "content_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
       }
     },

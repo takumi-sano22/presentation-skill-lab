@@ -22,15 +22,18 @@ import validate  # noqa: E402  入力契約の検証を共有する
 ADAPTER_VERSION = "0.1.0"
 SUPPORTED_SCHEMA_VERSIONS = {"0.1"}
 
-# design.theme.name → 上流 deck_style（日本語テーマの本実装は #5）
-# - renderer_role_systems_v1: v1 レイアウトに固定し、v2 契約が足す英語ラベル・プレースホルダ
-#   （"TABLE INDEX" / "READOUT" / "Key readout" 等）を出さない（上流 B:1406 の互換ピン）
-# - footer_source_label: 出典ラベルを日本語にする
-_BASE_STYLE = {"renderer_role_systems_v1": {"pin": "v1"}, "footer_source_label": "出典"}
-THEME_STYLES = {
-    "technical-light": {"style_preset": "arctic-minimal", **_BASE_STYLE},
-    "technical-dark": {"style_preset": "midnight-neon", **_BASE_STYLE},
+# design.theme.name → 上流のプリセット名。上流は deck_style からではなく CLI の --style-preset で
+# プリセットを選ぶため、outline の psl.render.style_preset に置き、ビルド CLI（#4）が引数へ渡す契約とする
+THEME_PRESETS = {
+    "technical-light": "arctic-minimal",
+    "technical-dark": "midnight-neon",
 }
+# 上流 deck_style（日本語テーマの本実装は #5）
+# - renderer_role_systems_v1: 空でないオブジェクトを渡すと上流は v1 レイアウトに固定する
+#   （build_deck_pptxgenjs.js の applyDeckStyle「persisted v1-only outline」分岐）。v2 契約が足す英語ラベル・
+#   プレースホルダ（"TABLE INDEX" / "READOUT" / "Key readout" 等）を出さないため。効果は tests/test_render_contract.py で実描画検証
+# - footer_source_label: 出典ラベルを日本語にする
+DECK_STYLE = {"renderer_role_systems_v1": {"pin": "v1"}, "footer_source_label": "出典"}
 
 # content.slide.type → (上流 type, variant)。layout override があればそちらを優先。
 # role は指定しない（上流の role 契約が本文を quadrant 等へ組み替えるのを避け、variant 既定に任せる）
@@ -379,7 +382,7 @@ def convert(content: dict, design: dict) -> dict:
     meta = content["metadata"]
     outline = {
         "title": meta["title"],
-        "deck_style": copy.deepcopy(THEME_STYLES[theme["name"]]),
+        "deck_style": copy.deepcopy(DECK_STYLE),
         "document_metadata": {"author": "presentation-skill-lab"},
         "psl": {
             "adapter_version": ADAPTER_VERSION,
@@ -391,6 +394,7 @@ def convert(content: dict, design: dict) -> dict:
             # audience / objective / language / content_locked を含むメタデータ全体を保持する
             "metadata": meta,
             "theme": theme,
+            "render": {"style_preset": THEME_PRESETS[theme["name"]]},
         },
         "slides": [convert_slide(s, overrides.get(s["id"], {})) for s in content["slides"]],
     }
