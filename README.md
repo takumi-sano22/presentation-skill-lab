@@ -2,7 +2,7 @@
 
 Claude Code と ChatGPT の双方から、**中身とデザインを分離**して技術系スライドを生成するためのスキル開発リポジトリ。
 
-> **状態: Phase 1 着手中。** 上流レンダラ（`vendor/presentation-skill` v0.14.0）の固定と描画環境の doctor まで実装済みです。`content.yaml`/`design.yaml` → `outline.json` の adapter と、PPTX/PDF/PNG/静的プレビューを出す共通ビルド CLI（`scripts/build`）まで実装済みです。日本語テーマ（technical-light / technical-dark）・ネイティブ技術図・画像アセット管理・自動 QA まで実装済みです。視覚ベンチマーク（#9）は未実装です。`scripts/validate.py` は共通データ契約と参照の検査のみです。
+> **状態: Phase 1 着手中。** 上流レンダラ（`vendor/presentation-skill` v0.14.0）の固定と描画環境の doctor まで実装済みです。`content.yaml`/`design.yaml` → `outline.json` の adapter と、PPTX/PDF/PNG/静的プレビューを出す共通ビルド CLI（`scripts/build`）まで実装済みです。日本語テーマ（technical-light / technical-dark）・ネイティブ技術図・画像アセット管理・自動 QA・技術資料3種の視覚ベンチマークまで実装済みです。ChatGPT 側の実機検証（#10）とリリース判定（#11）は未実施です。`scripts/validate.py` は共通データ契約と参照の検査のみです。
 
 ## 確定事項
 
@@ -146,6 +146,15 @@ scripts/build --content examples/asset-illustration/content.yaml --design exampl
 ## 自動 QA
 
 `scripts/build` が内容保持（PPTX/PDF の照合・往復検査）、幾何（スライド外・文字図形の重なり・推定あふれ）、最小文字サイズ、図の線と関係、編集性（表・グラフ・図の画像化の検出）、権利を検査し、結果を `build/<deck>/qa/report.json` に出す（CI artifact）。誤検知の除外は `qa-exceptions.yaml`（Slide ID・検査 ID・対象・理由が必須）。詳細は [`docs/qa.md`](docs/qa.md)。
+
+## 視覚ベンチマーク
+
+```bash
+scripts/dev.sh run python3 scripts/benchmark.py   # 3デッキ × 初期 / テーマ変更 / 文言増加
+# → build/benchmark/index.html（before/after 比較）、build/benchmark/metrics.json
+```
+
+意味保持（自動指標）と装飾品質（目視の5段階評価）を分けて [`docs/benchmarks.md`](docs/benchmarks.md) に記録している。
 
 ## WSL でのセットアップ（入力検証のみ）
 

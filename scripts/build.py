@@ -311,7 +311,69 @@ def pdf_page_texts(pdf: Path, pages: int) -> list[str]:
     return [run(["pdftotext", "-f", str(i), "-l", str(i), str(pdf), "-"]) for i in range(1, pages + 1)]
 
 
-def check_content_in_pdf(content: dict, pdf: Path, pages: int, outline: dict | None = None) -> list[str]:
+def pdf_words(pdf: Path, page: int) -> list[tuple[float, float, str]]:
+    """PDF の1ページの単語と中心座標（インチ）。pdftotext -bbox の出力を読む。"""
+    xml = run(["pdftotext", "-bbox", "-f", str(page), "-l", str(page), str(pdf), "-"])
+    words = []
+    for m in re.finditer(r'<word xMin="([\d.]+)" yMin="([\d.]+)" xMax="([\d.]+)" yMax="([\d.]+)">([^<]*)</word>', xml):
+        x0, y0, x1, y1 = (float(v) / 72 for v in m.groups()[:4])
+        words.append(((x0 + x1) / 2, (y0 + y1) / 2, html.unescape(m.group(5))))
+    return words
+
+
+def diagram_boxes_with_text(lay: dict) -> list[tuple[str, dict, list[str]]]:
+    """ネイティブ図で、枠の中に描かれるべき文字列（ノード名＋説明、辺ラベル、区画名、凡例）。"""
+    items = [(f"node:{n['id']}", n, [n["label"]] + ([n["description"]] if n.get("description") else []))
+             for n in lay["nodes"]]
+    items += [(f"edge-label:{e['index']}", e["label_box"], [e["label"]]) for e in lay["edges"] if e.get("label_box")]
+    items += [(f"group:{g['name']}", g["label_box"], [g["name"]]) for g in lay.get("groups", []) if g.get("label_box")]
+    items += [(f"legend:{i['kind']}", i, [i["label"]]) for i in lay.get("legend", [])]
+    return items
+
+
+def check_diagram_text_in_pdf(slide: dict, lay: dict, words: list[tuple[float, float, str]]) -> list[str]:
+    """図の各ラベルが PDF 上で自分の枠の中に描かれていることを検査する（読み順に依存しない）。"""
+    missing = []
+    for name, box, texts in diagram_boxes_with_text(lay):
+        inside = [w for w in words if box["x"] - 0.05 <= w[0] <= box["x"] + box["w"] + 0.05
+                  and box["y"] - 0.05 <= w[1] <= box["y"] + box["h"] + 0.05]
+        joined = normalize("".join(t for _, _, t in sorted(inside, key=lambda w: (round(w[1], 1), w[0]))))
+        missing += [f"{slide['id']}: 「{t}」（{name} の枠内）" for t in texts if normalize(t) not in joined]
+    return missing
+
+
+def table_frame(pptx: Path | None, index: int) -> dict | None:
+    """スライド index のネイティブ表の位置と列の左端（インチ）。列は a:gridCol の幅から求める。"""
+    if pptx is None:
+        return None
+    with zipfile.ZipFile(pptx) as z:
+        xml = z.read(slide_part_names(z)[index]).decode("utf-8")
+    for block in re.findall(r"<p:graphicFrame>.*?</p:graphicFrame>", xml, re.S):
+        if "<a:tbl>" not in block:
+            continue
+        off = re.search(r'<a:off x="(-?\d+)" y="(-?\d+)"/>\s*<a:ext cx="(\d+)" cy="(\d+)"/>', block)
+        x, y, w, h = (int(v) / EMU_PER_INCH for v in off.groups())
+        lefts, cursor = [], x
+        for width in re.findall(r'<a:gridCol w="(\d+)"', block):
+            lefts.append(cursor)
+            cursor += int(width) / EMU_PER_INCH
+        # 表は行が折り返すと PPTX 上の枠より下へ伸びて描かれるため、照合範囲はフッタ領域の手前まで広げる
+        h = max(h, SLIDE_CONTENT_BOTTOM - y)
+        return {"x": x, "y": y, "w": w, "h": h, "columns": lefts or [x]}
+    return None
+
+
+def words_in(words: list[tuple[float, float, str]], box: dict, margin: float = 0.05) -> str:
+    """枠内の単語を連結する。表なら列ごとに上から読む（同じ高さの別の列のセルと混ざらないように）。"""
+    inside = [w for w in words if box["x"] - margin <= w[0] <= box["x"] + box["w"] + margin
+              and box["y"] - margin <= w[1] <= box["y"] + box["h"] + margin]
+    columns = box.get("columns", [box["x"]])
+    column_of = lambda w: max(i for i, left in enumerate(columns) if w[0] >= left - margin) if w[0] >= columns[0] - margin else 0  # noqa: E731
+    return "".join(t for _, _, t in sorted(inside, key=lambda w: (column_of(w), round(w[1], 2), w[0])))
+
+
+def check_content_in_pdf(content: dict, pdf: Path, pages: int, outline: dict | None = None,
+                         pptx: Path | None = None) -> list[str]:
     """PDF の各ページから抽出したテキストに内容が現れるか（LibreOffice 変換での欠落・文字化けの検出）。
 
     表セル等の原子値は行単位の完全一致、文章はページ全体（折返しを無視）からの消費型照合。
@@ -321,8 +383,9 @@ def check_content_in_pdf(content: dict, pdf: Path, pages: int, outline: dict | N
     for i, (slide, text) in enumerate(zip(content["slides"], pdf_page_texts(pdf, pages))):
         atoms, texts = expected_items(slide)
         if is_native_diagram(outline, i):
-            # 図形内のラベルは箱の幅で折り返されて複数行になるため、PDF では文章として消費照合する
-            texts = [t for t in texts if t not in adapter.diagram_lines(slide["diagram"])] + diagram_labels(slide)
+            # 図のラベルは枠の位置で照合する（PDF の読み順では隣の図形の文字と混ざるため）
+            texts = [t for t in texts if t not in adapter.diagram_lines(slide["diagram"])]
+            missing += check_diagram_text_in_pdf(slide, outline["slides"][i]["psl"]["diagram_layout"], pdf_words(pdf, i + 1))
         if ch := slide.get("chart"):
             chart_atoms = set(ch["categories"]) | {se["name"] for se in ch["series"]}
             chart_atoms |= {adapter.format_number(v) for se in ch["series"] for v in se["values"]}
@@ -330,17 +393,31 @@ def check_content_in_pdf(content: dict, pdf: Path, pages: int, outline: dict | N
         lines = [normalize(ln) for ln in text.splitlines() if ln.strip()]
         # 1回の消費型照合: 原子値を行との完全一致で先に消費し、残った行を連結した文字列から文章を消費する
         # （同じ文字列を原子値と文章の両方に再利用しない。文章は折返しで複数行にまたがってよい）
+        long_atoms = []
         for a in atoms:
             n = normalize(a)
             if n in lines:
                 lines.remove(n)
+            elif len(n) > PDF_WRAP_ATOM_CHARS:
+                long_atoms.append(a)  # 長い表セル等は PDF で折り返されて複数行になるため、文章として照合する
             else:
                 missing.append(f"{slide['id']}: 「{a}」")
-        missing += [f"{slide['id']}: 「{m}」" for m in match_items([], texts, ["".join(lines)])]
+        # 長い原子値は表セル由来の文字に限定して照合する（PPTX の表の枠内に描かれた PDF の単語だけを使う）
+        frame = table_frame(pptx, i) if long_atoms else None
+        if frame:
+            region = words_in(pdf_words(pdf, i + 1), frame)
+            missing += [f"{slide['id']}: 「{m}」（表の枠内）" for m in match_items([], long_atoms, [region])]
+            long_atoms = []
+        missing += [f"{slide['id']}: 「{m}」" for m in match_items([], texts + long_atoms, ["".join(lines)])]
     return missing
 
 
+# PDF で行の完全一致を求める原子値の最大長（これより長い値は折返しを許して連結文字列から照合する。
+# 短い値は「1」と「10」を区別するため行単位の完全一致のまま）
+PDF_WRAP_ATOM_CHARS = 12
 EMU_PER_INCH = 914400
+# 本文領域の下端（インチ）。これより下はフッタ・出典行（16:9 = 5.625in の下 0.75in）
+SLIDE_CONTENT_BOTTOM = 5.625 - 0.75
 # 線の端点がノード境界上にあるとみなす許容差（インチ）
 EDGE_ENDPOINT_TOLERANCE = 0.03
 
@@ -563,7 +640,7 @@ def build(content_path: Path, design_path: Path, out: Path) -> dict:
     # 6. 検査（内容欠落・フォント埋め込み・和文組版）
     fonts = pdf_fonts(pdf)
     missing = check_content_in_pptx(content, pptx, outline)
-    missing_pdf = check_content_in_pdf(content, pdf, pages, outline)
+    missing_pdf = check_content_in_pdf(content, pdf, pages, outline, pptx)
     ja_errors, ja_warnings = check_japanese(content, pdf_page_texts(pdf, pages))
     diagram_errors = check_diagram_in_pptx(content, outline, pptx)
     media_errors = check_media(content, outline, pptx)

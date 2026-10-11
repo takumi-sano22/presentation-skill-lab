@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -74,6 +75,32 @@ def cross_validate(content: dict, design: dict, content_dir: Path) -> list[str]:
     return errors
 
 
+# 引用符なしの値の途中にある「 #」は YAML ではコメントになり、以降の文言が黙って捨てられる
+# （例: notes: 詳細は Issue #19 で検討 → 「詳細は Issue」になる）
+KEY_PREFIX = re.compile(r"^\s*(?:-\s+)?(?:[\w.-]+:(?:\s+|$))?")
+
+
+def yaml_comment_warnings(path: Path) -> list[str]:
+    """文言の途中に「 #」があり、コメントとして切り捨てられている可能性のある行を返す。
+
+    キー（`key:`）と箇条（`- `）を除いた値が引用符・ブロック記号で始まらず、途中に「 #」を含む行を対象にする。
+    値の無い行末コメント（`key:  # 説明`）と、識別子だけの設定値に続く説明（`layout: cover  # 説明`）は対象外。
+    """
+    warnings = []
+    for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        if line.lstrip().startswith("#"):
+            continue
+        value = line[KEY_PREFIX.match(line).end():]
+        if not value or value[0] in "'\"|>#[{" or " #" not in value:
+            continue
+        before = value.split(" #", 1)[0].strip()
+        # 識別子だけの設定値（例: layout: cover  # 説明）は意図したコメントとみなし、文言（空白や非 ASCII を含む）だけ警告する
+        if re.fullmatch(r"[\w.-]+", before):
+            continue
+        warnings.append(f"{path.name}:{lineno}: 「 #」以降が YAML のコメントとして捨てられます。文言なら引用符で囲んでください: {line.strip()[:60]}")
+    return warnings
+
+
 def main() -> int:
     p = argparse.ArgumentParser(description="スライド内容・デザインの入力契約 v0.1 を検証")
     p.add_argument("--content", required=True, type=Path)
@@ -92,6 +119,8 @@ def main() -> int:
             for error in errors:
                 print(" -", error)
             return 1
+        for warning in yaml_comment_warnings(a.content):
+            print("WARN:", warning)
         canonical = json.dumps(content, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
         print(f"PASS: {len(content['slides'])} スライドの入力契約を検証")
         print(f"content_sha256: {hashlib.sha256(canonical).hexdigest()}")

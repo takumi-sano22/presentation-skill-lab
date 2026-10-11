@@ -110,6 +110,33 @@ class BuildCheckTests(unittest.TestCase):
         with mock.patch.object(build, "pdf_page_texts", lambda pdf, pages: ["A\nh1\nh2\nA\nB\n"]):
             self.assertEqual(build.check_content_in_pdf(content, Path("x.pdf"), 1), [])
 
+    def test_pdf_long_cell_may_wrap_but_short_value_must_match_line(self):
+        from unittest import mock
+        sql = "SELECT COUNT(*) FROM item WHERE quantity <= 0"
+        content = {"slides": [{"id": "s1", "title": "T", "takeaway": "",
+                               "table": {"headers": ["検査", "SQL"], "rows": [["負数", sql], ["件数", "1"]]}}]}
+        wrapped = "T\n検査\nSQL\n負数\nSELECT COUNT(*) FROM item\nWHERE quantity <= 0\n件数\n1\n"
+        with mock.patch.object(build, "pdf_page_texts", lambda pdf, pages: [wrapped]):
+            self.assertEqual(build.check_content_in_pdf(content, Path("x.pdf"), 1), [])
+        # 短い値「1」は「10」の行では代用できない
+        with mock.patch.object(build, "pdf_page_texts", lambda pdf, pages: [wrapped.replace("\n1\n", "\n10\n")]):
+            self.assertEqual(build.check_content_in_pdf(content, Path("x.pdf"), 1), ["s1: 「1」"])
+
+    def test_pdf_long_cell_is_matched_only_inside_table_frame(self):
+        from unittest import mock
+        sql = "SELECT COUNT(*) FROM item WHERE quantity <= 0"
+        content = {"slides": [{"id": "s1", "title": "T", "takeaway": "", "notes": f"補足: {sql}",
+                               "table": {"headers": ["検査", "SQL"], "rows": [["負数", sql]]}}]}
+        frame = {"x": 1, "y": 1, "w": 6, "h": 2}
+        # 表の枠内にはセルが無く、注記（枠外）にだけ同じ SQL がある → 表セルの欠落として検出
+        words = [(2, 1.2, "検査"), (4, 1.2, "SQL"), (2, 1.6, "負数"), (3, 4.8, f"補足: {sql}")]
+        page = f"T\n検査\nSQL\n負数\n補足: {sql}\n"
+        with mock.patch.object(build, "pdf_page_texts", lambda pdf, pages: [page]), \
+                mock.patch.object(build, "pdf_words", lambda pdf, p: words), \
+                mock.patch.object(build, "table_frame", lambda pptx, i: frame):
+            self.assertEqual(build.check_content_in_pdf(content, Path("x.pdf"), 1, None, Path("x.pptx")),
+                             [f"s1: 「{sql}」（表の枠内）"])
+
     def test_short_value_is_not_matched_by_substring(self):
         # 「1」が欠落しても「10」に部分一致して PASS してはならない
         slide = {"id": "s1", "title": "表", "takeaway": "",

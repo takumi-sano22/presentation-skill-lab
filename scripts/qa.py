@@ -28,6 +28,8 @@ MIN_FONT_PT = 9.0
 LINE_HEIGHT = 1.25
 OVERFLOW_TOLERANCE = 1.15
 HALF_WIDTH_EM = 0.55
+# あふれがここより下（フッタ・出典行の領域）に達したら崩れとみなす
+FOOTER_RESERVED = 0.5
 EXCEPTIONS_FILE = "qa-exceptions.yaml"
 CHECK_IDS = {"out-of-bounds", "text-overlap", "text-overflow", "min-font", "connector-crossing",
              "rasterized-table", "rasterized-chart", "rasterized-diagram", "missing-native-table",
@@ -179,7 +181,18 @@ def check_slide(sid: str, slide: dict, o_slide: dict, shapes: list[Shape]) -> li
             continue
         need = estimated_text_height(s)
         if need > s.h * OVERFLOW_TOLERANCE and need - s.h > 0.12:
-            add("text-overflow", s.name, f"文字が枠からあふれる見込み（必要 {need:.2f}in > 枠 {s.h:.2f}in）「{s.text[:16]}」")
+            # あふれた部分（枠の下に伸びる範囲）が他の文字図形と重なるかスライド外に出れば崩れ（FAIL）。
+            # 空き領域に収まるだけなら見た目は崩れないため警告に留める
+            spill = Shape(s.name, s.kind, s.x, s.y + s.h, s.w, need - s.h)
+            # 文字図形に加え、画像・表・グラフ（可視の内容）との衝突も崩れとみなす。文字のない装飾図形は除く
+            visible = texted + [o for o in shapes if o.kind in ("pic", "graphicFrame")]
+            collides = [o for o in visible if o is not s and spill.intersection(o) > 0.01]
+            beyond = s.y + need > SLIDE_H - FOOTER_RESERVED
+            severity = "error" if collides or beyond else "warning"
+            hit = collides[0].text[:10] or collides[0].name if collides else ""
+            where = f"「{hit}」と重なる" if collides else ("スライド下端に達する" if beyond else "下の空き領域に収まる")
+            add("text-overflow", s.name,
+                f"文字が枠からあふれる見込み（必要 {need:.2f}in > 枠 {s.h:.2f}in、{where}）「{s.text[:16]}」", severity)
     # typography: 最小文字サイズ
     for s in texted:
         small = [pt for pt in s.font_sizes if pt < MIN_FONT_PT]

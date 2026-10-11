@@ -1,0 +1,21 @@
+schema_version: '0.1'
+deck_id: bench-architecture
+theme:
+  name: technical-light
+  fonts:
+    heading: Noto Sans JP
+    body: Noto Sans JP
+  colors:
+    background: '#F8FAFC'
+    foreground: '#14213D'
+    accent: '#1876A3'
+    muted: '#627286'
+overrides:
+  b101:
+    layout: cover
+  b103:
+    layout: architecture
+  b104:
+    layout: flow
+  b105:
+    layout: comparison
