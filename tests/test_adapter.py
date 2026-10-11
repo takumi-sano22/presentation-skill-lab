@@ -75,6 +75,8 @@ class AdapterTests(unittest.TestCase):
             "本文欠落": lambda o: o["slides"][1]["bullets"].pop(),
             "出典欠落": lambda o: o["slides"][4].pop("sources"),
             "順序入替": lambda o: o["slides"].reverse(),
+            "単位表示改変": lambda o: o["slides"][4]["chart"]["options"].__setitem__("valAxisTitle", "単位: 個"),
+            "注記表示欠落": lambda o: o["slides"][3].pop("footer"),
         }
         for name, tamper in cases.items():
             with self.subTest(name):
@@ -103,6 +105,13 @@ class AdapterTests(unittest.TestCase):
             with self.subTest(name):
                 with self.assertRaises(adapter.UnsupportedContent):
                     self.convert(mutate)
+
+    def test_table_unit_period_caption(self):
+        def add_unit(c, _):
+            c["slides"][3]["table"]["unit"] = "件"
+            c["slides"][3]["table"]["period"] = "2026年"
+        s004 = self.convert(add_unit)["slides"][3]
+        self.assertEqual(s004["table"]["caption"], "単位: 件 / 期間: 2026年")
 
     def test_number_format_is_stable(self):
         self.assertEqual(adapter.format_number(20), adapter.format_number(20.0))

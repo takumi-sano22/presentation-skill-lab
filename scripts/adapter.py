@@ -73,6 +73,15 @@ def format_number(value: float | int) -> str:
     return str(int(value)) if float(value).is_integer() else repr(float(value))
 
 
+def table_caption(unit: str | None, period: str | None) -> str:
+    """表の単位・期間を表示用 caption にする（逆写像でも同じ関数で照合する）。"""
+    return " / ".join(f"{label}: {v}" for label, v in (("単位", unit), ("期間", period)) if v)
+
+
+def chart_unit_title(unit: str) -> str:
+    return f"単位: {unit}"
+
+
 def diagram_lines(diagram: dict) -> list[str]:
     """図をテキスト行へ写す暫定フォールバック（ネイティブ図は #6）。
 
@@ -165,11 +174,16 @@ def outline_semantic_items(outline: dict) -> list[tuple[str, str, str]]:
             for r, row in enumerate(t["rows"]):
                 for c, cell in enumerate(row):
                     add(f"table.cell[{r}][{c}]", cell)
+            # 単位・期間は可視の caption から復元する（メタデータだけで一致させない）
+            if t.get("caption", "") != table_caption(meta.get("table_unit"), meta.get("table_period")):
+                raise ContentMismatch(f"{sid}: 表の単位・期間の表示が一致しません")
             for key in ("unit", "period"):
                 if meta.get(f"table_{key}"):
                     add(f"table.{key}", meta[f"table_{key}"])
         if ch := s.get("chart"):
             add("chart.type", ch["type"])
+            if ch.get("options", {}).get("valAxisTitle") != chart_unit_title(meta["chart_unit"]):
+                raise ContentMismatch(f"{sid}: グラフの単位表示が一致しません")
             add("chart.unit", meta["chart_unit"])
             for c in ch["categories"]:
                 add("chart.category", c)
@@ -185,6 +199,8 @@ def outline_semantic_items(outline: dict) -> list[tuple[str, str, str]]:
         for ref in s.get("sources", []):
             add("source_ref", ref)
         if meta.get("visible_note"):
+            if s.get("footer") != meta["visible_note"]:
+                raise ContentMismatch(f"{sid}: 注記の表示が一致しません")
             add("notes", meta["visible_note"])
         if meta.get("asset_ref"):
             add("asset_ref", meta["asset_ref"])
@@ -228,7 +244,7 @@ def convert_slide(s: dict, override: dict) -> dict:
         if variant != "table":
             raise UnsupportedContent(f"{sid}: 表を layout '{key}' では表示できません")
         out["table"] = {"headers": list(t["headers"]), "rows": [list(r) for r in t["rows"]]}
-        caption = " / ".join(f"{label}: {t[k]}" for k, label in (("unit", "単位"), ("period", "期間")) if t.get(k))
+        caption = table_caption(t.get("unit"), t.get("period"))
         if caption:
             out["table"]["caption"] = caption
         for k in ("unit", "period"):
@@ -243,7 +259,7 @@ def convert_slide(s: dict, override: dict) -> dict:
             "categories": list(ch["categories"]),
             "series": [{"name": se["name"], "values": list(se["values"])} for se in ch["series"]],
             # 単位は値軸タイトルとして表示する（数値自体は変更しない）
-            "options": {"valAxisTitle": f"単位: {ch['unit']}"},
+            "options": {"valAxisTitle": chart_unit_title(ch["unit"])},
         }
         meta["chart_unit"] = ch["unit"]
 
