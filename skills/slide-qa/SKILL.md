@@ -12,4 +12,4 @@ description: 生成したスライドの文章・数値欠落、文字重なり�
 5. 修正担当と Slide ID を明示し、内容変更が必要なら内容担当へ戻す。QA担当が勝手に意味を修正しない。
 6. 誤検知には除外理由・スクリーンショット・適用範囲を付ける。
 
-現在動くのは `scripts/validate.py` の入力検査と、`scripts/build` の内容保持検査（PPTX・PDF のテキスト照合、PDF ページ数、フォント埋め込み、content 外文言の警告）。幾何（はみ出し・重なり）・編集性の総合 QA は #8 で実装予定。
+`scripts/build` が内容保持・幾何（はみ出し・重なり・あふれ）・最小文字サイズ・図の線・編集性（画像化の検出）・権利の検査を実行し、`build/<deck>/qa/report.json` に出力する。検査一覧と誤検知の除外（`qa-exceptions.yaml`、Slide ID と理由が必須）は `docs/qa.md`。PASS 後も PNG 全ページを目視する。

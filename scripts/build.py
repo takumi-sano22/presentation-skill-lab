@@ -25,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import adapter  # noqa: E402
 import assets  # noqa: E402
 import diagram as diagram_layout  # noqa: E402
+import qa  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 LOCK = json.loads((ROOT / "upstream.lock.json").read_text(encoding="utf-8"))
@@ -566,6 +567,11 @@ def build(content_path: Path, design_path: Path, out: Path) -> dict:
     ja_errors, ja_warnings = check_japanese(content, pdf_page_texts(pdf, pages))
     diagram_errors = check_diagram_in_pptx(content, outline, pptx)
     media_errors = check_media(content, outline, pptx)
+    # 総合 QA（幾何・最小文字サイズ・図の線の貫通・画像化）。除外は qa-exceptions.yaml（Slide ID・理由必須）
+    try:
+        qa_result = qa.run_qa(content, outline, pptx, content_path.parent)
+    except ValueError as exc:
+        raise BuildError(f"QA の除外設定が不正です: {exc}") from exc
     used_assets = [s["psl"]["image"] for s in outline["slides"] if s["psl"].get("image")]
     asset_manifest = {e["path"]: e for e in assets.load_manifest(content_path.parent)["assets"]}
     font_errors = check_fonts(fonts)
@@ -608,6 +614,7 @@ def build(content_path: Path, design_path: Path, out: Path) -> dict:
             "font_errors": font_errors,
             "diagram_errors": diagram_errors,
             "media_errors": media_errors,
+            "qa": qa_result,
             "diagram_crossings": {s["psl"]["slide_id"]: diagram_layout.count_crossings(s["psl"]["diagram_layout"])
                                   for s in outline["slides"] if s["psl"].get("diagram_layout")},
             "japanese_errors": ja_errors,
@@ -618,8 +625,17 @@ def build(content_path: Path, design_path: Path, out: Path) -> dict:
         },
     }
     (out / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    # 検証結果を独立したレポートにも出す（CI artifact としてレビューしやすくする）
+    (out / "qa").mkdir(exist_ok=True)
+    (out / "qa" / "report.json").write_text(json.dumps(
+        {"deck_id": manifest["deck_id"], "inputs": manifest["inputs"], "renderer": manifest["renderer"],
+         "passed": not (missing or missing_pdf or font_errors or ja_errors or diagram_errors or media_errors
+                        or qa_result["errors"]),
+         "checks": manifest["checks"]}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     write_gallery(out, content["metadata"]["title"], pngs, slide_ids, "manifest.json")
-    errors = [f"PPTX {e}" for e in missing] + [f"PDF {e}" for e in missing_pdf] + font_errors + ja_errors + diagram_errors + media_errors
+    errors = ([f"PPTX {e}" for e in missing] + [f"PDF {e}" for e in missing_pdf] + font_errors + ja_errors
+              + diagram_errors + media_errors
+              + [f"QA {e['slide_id']} [{e['check']}] {e['message']}" for e in qa_result["errors"]])
     if errors:
         raise BuildError("検査 FAIL:\n" + "\n".join(f" - {e}" for e in errors))
     return manifest

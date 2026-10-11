@@ -121,7 +121,7 @@ function drawDiagram(pptx, pSlide, lay, preset) {
     if (e.label_box) {
       const b = e.label_box;
       pSlide.addText(e.label, {
-        x: b.x, y: b.y, w: b.w, h: b.h, objectName: `edge-label:${e.index}:${e.from}->${e.to}`,
+        x: b.x, y: b.y, w: b.w, h: b.h, objectName: `edge-label:${e.index}:${e.from}:${e.to}`,  // addText は名前を二重エスケープするため ">" を使わない
         fontFace: font, fontSize: lay.edge_font_pt, color: preset.text, align: 'center', valign: 'middle',
         fill: { color: preset.bg }, margin: 0,
       });
@@ -148,6 +148,21 @@ function drawDiagram(pptx, pSlide, lay, preset) {
       fontFace: font, fontSize: lay.edge_font_pt, color: preset.text_muted, valign: 'middle', margin: 0,
     });
   }
+}
+
+// 日本語テーマ規約 J-1: 上流の補助ラベル（表紙キッカー 8.4pt、グラフ注記・軸ラベル 8pt 等）を最小 9pt に引き上げる。
+// 文字列は変えず、文字サイズ属性（百分の一 pt）だけを置き換える
+const MIN_FONT_CENTIPT = 900;
+async function enforceMinFont(pptxPath) {
+  const JSZip = require('jszip');
+  const zip = await JSZip.loadAsync(fs.readFileSync(pptxPath));
+  const parts = Object.keys(zip.files).filter((n) => /^ppt\/(slides\/slide|charts\/chart)\d+\.xml$/.test(n));
+  for (const name of parts) {
+    const xml = await zip.file(name).async('string');
+    zip.file(name, xml.replace(/(<a:(?:rPr|defRPr|endParaRPr)\b[^>]*\ssz=")(\d+)"/g,
+      (m, head, size) => (Number(size) < MIN_FONT_CENTIPT ? `${head}${MIN_FONT_CENTIPT}"` : m)));
+  }
+  fs.writeFileSync(pptxPath, await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' }));
 }
 
 async function main() {
@@ -192,6 +207,7 @@ async function main() {
     '--outline', args.outline, '--output', args.output, '--style-preset', presetName];
   await builder.main();
   await recolorChartText(args.output, tokens.text_muted);
+  await enforceMinFont(args.output);
 }
 
 if (require.main === module) {
