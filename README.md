@@ -71,6 +71,14 @@ python3 -m unittest discover -s tests -v
 
 Claude Code / Codex へのスキル配置は [`docs/usage.md`](docs/usage.md) を参照。`bash scripts/create-issues.sh` で開発用Issue原稿10件を登録できます（`gh` 認証が必要。同名タイトルはスキップ）。レンダラ実装の前に実行できるのはスキーマと参照の検証だけです。
 
+## 開発バックログの自走（Phase 1〜）
+
+GitHub Issue #2〜#11 を登録済み。うち #2〜#9 はClaude Code中心で自走実装し、#10のChatGPT実機検証と#11のリリース判断は別途Gateを設ける。進捗の集約先は [管理Issue #12](https://github.com/takumi-sano22/presentation-skill-lab/issues/12)。
+
+運用・停止条件は [自走開発規約](docs/autonomy.md) と [dev-autopilotスキル](.claude/skills/dev-autopilot/SKILL.md) にまとめた。規約導入PRのマージ後に `git pull --ff-only` し、`claude auth status` でログイン方法を確認してから `claude --permission-mode auto`（利用可能な環境）で開始し、`docs/autonomy.md` に記載した `/goal` を設定する。非対話モードやAPI課金は必須ではない。
+
+**注意:** 完全無人での作業は、実行環境が動作している間かつ認証・権限・利用枠が有効な場合に限る。モデルやプランでautoモードが使えない場合は手動承認が発生する。安全のためローカルPCで `--dangerously-skip-permissions` は使わない。
+
 ## 今後
 
 - [実装ロードマップ](docs/roadmap.md)
