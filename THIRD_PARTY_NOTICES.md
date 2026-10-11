@@ -5,7 +5,7 @@
 | 名称 | URL | 確認したライセンス | 扱い |
 |---|---|---|---|
 | presentation-skill | https://github.com/siril9/presentation-skill | MIT | **取り込み済み**（下記）。正本は upstream |
-| jinba-consulting-pptx-skill | https://github.com/carnot-tech/jinba-consulting-pptx-skill | MIT | 規約・パーツを選択的参照。直接移植時には元著作権・LICENSE を付記 |
+| jinba-consulting-pptx-skill | https://github.com/carnot-tech/jinba-consulting-pptx-skill | MIT | **規約の要旨を翻案済み**（下記）。コード・テンプレート・ロゴは不使用 |
 | minorun-marp-skill | https://github.com/minorun365/minorun-marp-skill | Apache-2.0 | 考え方を参考。初期はコードのコピーなし。画像素材は別権利の可能性あり |
 | basicslide | https://github.com/khaym/basicslide | MIT | 将来の独創的デザイン評価を参考。コード移植は未定 |
 | Dagre | https://github.com/dagrejs/dagre | MIT | 将来のノード配置用の依存候補 |
@@ -37,3 +37,32 @@
 ### 描画環境（Docker イメージ内、再配布しない）
 
 - LibreOffice（MPL-2.0）、poppler-utils（GPL-2.0）、Noto Sans CJK JP（`fonts-noto-cjk`, SIL OFL 1.1）。いずれも Debian パッケージをイメージ構築時に取得し、本リポジトリには含めない。
+
+### jinba-consulting-pptx-skill（規約の翻案）
+
+- コミット: `585ce02dfe00d8c86cbf95f83772bbefd3352427`
+- 範囲: `references/slide-rules.md` の日本語スライド規約の一部（タイトル長・泣き別れ・書体数・数値の平仄）を、`docs/design-rules.md`「日本語テーマ規約」J-2/J-3/J-4/J-8 として要旨を翻案。文言の転載・コード・テンプレート（`assets/` の PDF/PPTX）・ロゴは使用していない。
+- 商標: 「Carnot」「Carnot AI」「Jinba」は Carnot AI Inc. の商標であり、本プロジェクトは出典としての事実言及に留める。
+- ライセンス表示（MIT）:
+
+```text
+Copyright (c) 2026 Carnot AI Inc.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```

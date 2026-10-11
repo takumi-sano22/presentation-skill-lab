@@ -13,7 +13,8 @@
       "required": ["renderer_role_systems_v1", "footer_source_label"],
       "properties": {
         "renderer_role_systems_v1": {"type": "object"},
-        "footer_source_label": {"type": "string"}
+        "footer_source_label": {"type": "string"},
+        "readability_contract": {"type": "object"}
       }
     },
     "document_metadata": {"type": "object"},
@@ -44,6 +45,8 @@
           "bullets": {"type": "array", "items": {"type": "string"}},
           "footer": {"type": "string"},
           "caption": {"type": "string"},
+          "kicker": {"type": "string"},
+          "title_layout": {"type": "string"},
           "notes": {"type": "string"},
           "sources": {"type": "array", "items": {"type": "string"}},
           "table": {
@@ -54,6 +57,8 @@
               "headers": {"type": "array", "items": {"type": "string"}},
               "rows": {"type": "array", "items": {"type": "array", "items": {"type": "string"}}},
               "caption": {"type": "string"},
+          "kicker": {"type": "string"},
+          "title_layout": {"type": "string"},
               "footnotes": {"type": "array", "items": {"type": "string"}}
             }
           },

@@ -31,34 +31,79 @@ def slide_texts(pptx: Path) -> list[str]:
         return [t for n in names for t in re.findall(r"<a:t>([^<]*)</a:t>", z.read(n).decode("utf-8"))]
 
 
+WRAPPER = ROOT / "scripts/render.js"
+
+
+def part_xml(pptx: Path, pattern: str) -> str:
+    with zipfile.ZipFile(pptx) as z:
+        return "".join(z.read(n).decode("utf-8") for n in z.namelist() if re.fullmatch(pattern, n))
+
+
 @unittest.skipUnless(os.environ.get("PPTX_NODE_MODULES") and RENDERER.is_file(), "Docker イメージ内でのみ実行")
 class RenderContractTests(unittest.TestCase):
-    def render(self, outline: dict) -> list[str]:
-        with tempfile.TemporaryDirectory() as d:
-            path, out = Path(d) / "outline.json", Path(d) / "deck.pptx"
-            path.write_text(adapter.canonical_json(outline), encoding="utf-8")
-            subprocess.run(["node", str(RENDERER), "--outline", str(path), "--output", str(out),
-                            "--style-preset", outline["psl"]["render"]["style_preset"]],
-                           check=True, capture_output=True, text=True)
-            return slide_texts(out)
-
     def setUp(self):
-        content, design = adapter.load_and_validate(ROOT / "examples/technical-architecture/content.yaml",
-                                                    ROOT / "examples/technical-architecture/design.yaml")
-        self.outline = adapter.convert(content, design)
+        self.tmp = tempfile.TemporaryDirectory()
+        self.content, self.design = adapter.load_and_validate(
+            ROOT / "examples/technical-architecture/content.yaml", ROOT / "examples/technical-architecture/design.yaml")
+        self.outline = adapter.convert(self.content, self.design)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def render(self, outline: dict, name: str = "deck", raw: bool = False) -> Path:
+        """scripts/render.js（テーマ注入）経由で描画する。raw=True は上流を直接呼ぶ対照用。"""
+        path, out = Path(self.tmp.name) / f"{name}.json", Path(self.tmp.name) / f"{name}.pptx"
+        path.write_text(adapter.canonical_json(outline), encoding="utf-8")
+        cmd = (["node", str(RENDERER), "--outline", str(path), "--output", str(out),
+                "--style-preset", outline["psl"]["render"]["style_preset"]] if raw
+               else ["node", str(WRAPPER), "--outline", str(path), "--output", str(out)])
+        subprocess.run(cmd, check=True, capture_output=True, text=True)
+        return out
 
     def test_v1_pin_suppresses_v2_placeholders(self):
-        texts = set(self.render(self.outline))
+        texts = set(slide_texts(self.render(self.outline)))
         self.assertFalse(texts & V2_PLACEHOLDERS, texts & V2_PLACEHOLDERS)
-        # 対照: pin を外すと上流は v2 契約に戻り、プレースホルダが出る（pin が実際に効いている証拠）
-        unpinned = copy.deepcopy(self.outline)
-        del unpinned["deck_style"]["renderer_role_systems_v1"]
-        self.assertTrue(set(self.render(unpinned)) & V2_PLACEHOLDERS)
+        # 対照: v2 契約が表に "TABLE INDEX" を足す editorial-minimal で、pin の有無を比べる
+        # （pin ありで出ず、外すと出る = pin が実際に効いている証拠）
+        editorial = copy.deepcopy(self.outline)
+        editorial["psl"]["render"]["style_preset"] = "editorial-minimal"
+        self.assertFalse(set(slide_texts(self.render(editorial, "pinned"))) & V2_PLACEHOLDERS)
+        del editorial["deck_style"]["renderer_role_systems_v1"]
+        self.assertTrue(set(slide_texts(self.render(editorial, "unpinned"))) & V2_PLACEHOLDERS)
 
-    def test_source_label_is_japanese(self):
-        texts = self.render(self.outline)
+    def test_source_label_and_cover_kicker_are_japanese(self):
+        texts = slide_texts(self.render(self.outline))
         self.assertTrue(any(t.startswith("出典") for t in texts))
         self.assertFalse(any(t.startswith("Sources") for t in texts))
+        self.assertIn("公開資料", texts)
+        self.assertNotIn("POLICY BRIEF", texts)
+
+    def test_theme_fonts_and_colors_are_applied(self):
+        xml = part_xml(self.render(self.outline), r"ppt/slides/slide\d+\.xml")
+        # 欧文（latin）・和文（ea）とも design のフォント名だけになる
+        self.assertEqual(set(re.findall(r'<a:(?:latin|ea) typeface="([^"]+)"', xml)), {"Noto Sans JP"})
+        colors = set(re.findall(r'srgbClr val="([0-9A-F]{6})"', xml))
+        self.assertTrue({"F8FAFC", "14213D", "1876A3", "627286"} <= colors, colors)
+        # 基底プリセット（arctic-minimal）固有のアクセント・本文色が残っていない
+        self.assertFalse({"0EA5E9", "0F172A", "64748B"} & colors, colors)
+        # 対照: テーマ注入なしの上流直呼びではプリセットの色・フォントになる
+        raw_xml = part_xml(self.render(self.outline, "raw", raw=True), r"ppt/slides/slide\d+\.xml")
+        self.assertIn("0EA5E9", raw_xml)
+
+    def test_chart_axis_text_uses_muted_color(self):
+        chart = part_xml(self.render(self.outline), r"ppt/charts/chart\d+\.xml")
+        axes = "".join(re.findall(r"<c:(?:catAx|valAx)>.*?</c:(?:catAx|valAx)>", chart, re.S))
+        self.assertIn('srgbClr val="627286"', axes)
+        self.assertNotIn('srgbClr val="000000"', axes)
+
+    def test_dark_theme_uses_dark_surfaces(self):
+        _, dark = adapter.load_and_validate(ROOT / "examples/technical-architecture/content.yaml",
+                                            ROOT / "examples/technical-architecture/design-dark.yaml")
+        xml = part_xml(self.render(adapter.convert(self.content, dark), "dark"), r"ppt/slides/slide\d+\.xml")
+        colors = set(re.findall(r'srgbClr val="([0-9A-F]{6})"', xml))
+        self.assertTrue({"0F172A", "E2E8F0", "0284C7"} <= colors, colors)
+        # midnight-neon 固有のアクセント（シアン・ピンク）が残っていない
+        self.assertFalse({"22D3EE", "F43F5E"} & colors, colors)
 
 
 if __name__ == "__main__":

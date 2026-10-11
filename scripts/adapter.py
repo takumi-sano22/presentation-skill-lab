@@ -29,12 +29,25 @@ THEME_PRESETS = {
     "technical-light": "arctic-minimal",
     "technical-dark": "midnight-neon",
 }
+# 表紙: 上流 v1 の split-hero は和文タイトルを末尾1文字だけ折り返しやすい（泣き別れ）ため、
+# タイトル幅の広い light-atlas を使う。キッカー（既定は英語の "POLICY BRIEF"）には機密区分を和文で表示する
+COVER_LAYOUT = "light-atlas"
+CLASSIFICATION_LABELS = {"public": "公開資料", "internal": "社内限り", "confidential": "機密"}
+
 # 上流 deck_style（日本語テーマの本実装は #5）
 # - renderer_role_systems_v1: 空でないオブジェクトを渡すと上流は v1 レイアウトに固定する
 #   （build_deck_pptxgenjs.js の applyDeckStyle「persisted v1-only outline」分岐）。v2 契約が足す英語ラベル・
 #   プレースホルダ（"TABLE INDEX" / "READOUT" / "Key readout" 等）を出さないため。効果は tests/test_render_contract.py で実描画検証
 # - footer_source_label: 出典ラベルを日本語にする
-DECK_STYLE = {"renderer_role_systems_v1": {"pin": "v1"}, "footer_source_label": "出典"}
+# - readability_contract: 和文の最小文字サイズ（docs/design-rules.md「日本語テーマ規約」J-1）
+DECK_STYLE = {
+    "renderer_role_systems_v1": {"pin": "v1"},
+    "footer_source_label": "出典",
+    "readability_contract": {
+        "min_title_pt": 26, "min_body_pt": 16, "min_support_pt": 12, "min_caption_pt": 10,
+        "min_footer_pt": 9, "min_metadata_pt": 9, "max_title_lines": 2,
+    },
+}
 
 # content.slide.type → (上流 type, variant)。layout override があればそちらを優先。
 # role は指定しない（上流の role 契約が本文を quadrant 等へ組み替えるのを避け、variant 既定に任せる）
@@ -64,6 +77,20 @@ VARIANT_FIELDS = {
 CONTENT_FIELDS = {"body", "diagram", "table", "chart", "asset_ref", "source_refs", "notes"}
 # 描画を確認済みのグラフ種別（円グラフは単位表示・凡例の検証が未了のため #5 まで対象外）
 SUPPORTED_CHART_TYPES = {"bar", "line"}
+
+
+# 配色の最小コントラスト比（WCAG 2.x）。docs/design-rules.md「日本語テーマ規約」J-5
+#   (前景, 背景, 最小比, 用途) — 白は上流の表ヘッダ文字色
+CONTRAST_RULES = (
+    ("foreground", "background", 4.5, "本文"),
+    ("muted", "background", 4.5, "要点・注記・軸ラベル"),
+    ("#FFFFFF", "accent", 3.0, "表ヘッダ（太字の白文字）"),
+    ("accent", "background", 3.0, "グラフ・罫線などの図形"),
+)
+
+
+class DesignError(ValueError):
+    """design.yaml のテーマが読みやすさの規約（コントラスト等）を満たさない。"""
 
 
 class UnsupportedContent(ValueError):
@@ -208,6 +235,9 @@ def outline_semantic_items(outline: dict) -> list[tuple[str, str, str]]:
         sid = meta["slide_id"]
         add = lambda kind, value: items.append((sid, kind, value))  # noqa: E731
         add("type", meta["content_type"])
+        # 表紙のキッカーは metadata.classification から導出した表示（それ以外の文言を許さない）
+        if s["type"] == "title" and s.get("kicker") != CLASSIFICATION_LABELS[psl["metadata"]["classification"]]:
+            raise ContentMismatch(f"{sid}: 表紙の機密区分ラベルが metadata.classification と一致しません")
         add("title", s["title"])
         if s.get("subtitle"):
             add("takeaway", s["subtitle"])
@@ -383,6 +413,7 @@ def convert(content: dict, design: dict) -> dict:
         raise UnsupportedContent(f"schema_version {content.get('schema_version')} は未対応")
     overrides = design.get("overrides", {})
     theme = design["theme"]
+    check_theme_contrast(theme)
     meta = content["metadata"]
     outline = {
         "title": meta["title"],
@@ -402,12 +433,43 @@ def convert(content: dict, design: dict) -> dict:
         },
         "slides": [convert_slide(s, overrides.get(s["id"], {})) for s in content["slides"]],
     }
-    # 上流 v0.14.0 に写像先がなく未適用の design 指定を明示する（黙って無視しない。適用は #5）
-    unapplied = ["theme.fonts", "theme.colors"]
-    unapplied += [f"overrides.{s['psl']['slide_id']}.density" for s in outline["slides"] if s["psl"].get("density")]
+    for slide in outline["slides"]:
+        if slide["type"] == "title":
+            slide["title_layout"] = COVER_LAYOUT
+            slide["kicker"] = CLASSIFICATION_LABELS[meta["classification"]]
+    # 上流 v0.14.0 に写像先がなく未適用の design 指定を明示する（黙って無視しない）。
+    # theme.fonts / theme.colors は scripts/render.js がプリセットへ注入して適用する
+    unapplied = [f"overrides.{s['psl']['slide_id']}.density" for s in outline["slides"] if s["psl"].get("density")]
     outline["psl"]["unapplied_design"] = unapplied
     verify_roundtrip(content, outline)
     return outline
+
+
+def relative_luminance(color: str) -> float:
+    def channel(v: int) -> float:
+        c = v / 255
+        return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+    r, g, b = (int(color.lstrip("#")[i:i + 2], 16) for i in (0, 2, 4))
+    return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b)
+
+
+def contrast_ratio(a: str, b: str) -> float:
+    la, lb = sorted((relative_luminance(a), relative_luminance(b)), reverse=True)
+    return (la + 0.05) / (lb + 0.05)
+
+
+def check_theme_contrast(theme: dict) -> None:
+    """テーマ色の組み合わせが最小コントラスト比を満たすか。満たさなければ DesignError。"""
+    colors = dict(theme["colors"])
+    colors.setdefault("muted", colors["foreground"])  # render.js と同じ既定
+    failures = []
+    for fg, bg, minimum, usage in CONTRAST_RULES:
+        a, b = colors.get(fg, fg), colors.get(bg, bg)
+        ratio = contrast_ratio(a, b)
+        if ratio < minimum:
+            failures.append(f"{usage}: {fg}({a}) / {bg}({b}) = {ratio:.2f} < {minimum}")
+    if failures:
+        raise DesignError("テーマ配色のコントラスト不足: " + "; ".join(failures))
 
 
 def load_and_validate(content_path: Path, design_path: Path) -> tuple[dict, dict]:

@@ -13,11 +13,13 @@ jobs:
       - name: Install validation dependencies
         run: python -m pip install -r requirements-dev.txt
       - name: Validate example inputs
-        run: >-
-          python scripts/validate.py
-          --content examples/technical-architecture/content.yaml
-          --design examples/technical-architecture/design.yaml
-          --public-repo-check
+        run: |
+          for d in design design-dark; do
+            python scripts/validate.py \
+              --content examples/technical-architecture/content.yaml \
+              --design examples/technical-architecture/$d.yaml \
+              --public-repo-check
+          done
       - name: Convert example to outline.json (adapter)
         run: >-
           python scripts/adapter.py
@@ -45,9 +47,17 @@ jobs:
           --content examples/technical-architecture/content.yaml
           --design examples/technical-architecture/design.yaml
           --out build/sample-cloud-architecture
-      - name: Upload sample deck
+      - name: Build same content with dark theme (design only)
+        run: >-
+          scripts/build
+          --content examples/technical-architecture/content.yaml
+          --design examples/technical-architecture/design-dark.yaml
+          --out build/sample-dark
+      - name: Upload sample decks
         uses: actions/upload-artifact@v4
         with:
-          name: sample-cloud-architecture
-          path: build/sample-cloud-architecture
+          name: sample-decks
+          path: |
+            build/sample-cloud-architecture
+            build/sample-dark
           retention-days: 14

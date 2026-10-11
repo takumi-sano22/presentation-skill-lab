@@ -25,7 +25,7 @@ import adapter  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 LOCK = json.loads((ROOT / "upstream.lock.json").read_text(encoding="utf-8"))
-RENDERER = ROOT / LOCK["path"] / "scripts" / "build_deck_pptxgenjs.js"
+RENDER_WRAPPER = ROOT / "scripts" / "render.js"
 PNG_DPI = 110
 # LibreOffice 等のハングでビルドが止まり続けないための上限（秒）
 COMMAND_TIMEOUT = 600
@@ -65,8 +65,9 @@ def tool_version(cmd: list[str]) -> str:
 # 各段
 # ---------------------------------------------------------------------------
 
-def render_pptx(outline_path: Path, pptx_path: Path, preset: str) -> None:
-    run(["node", str(RENDERER), "--outline", str(outline_path), "--output", str(pptx_path), "--style-preset", preset])
+def render_pptx(outline_path: Path, pptx_path: Path) -> None:
+    # テーマ（design.yaml のフォント・配色）を注入してから上流 main() を呼ぶラッパー経由で描画する
+    run(["node", str(RENDER_WRAPPER), "--outline", str(outline_path), "--output", str(pptx_path)])
 
 
 def convert_pdf(pptx_path: Path, out_dir: Path) -> Path:
@@ -223,7 +224,9 @@ def find_non_content_text(content: dict, outline: dict, pptx: Path) -> dict[str,
     label = normalize(outline["deck_style"].get("footer_source_label", "") + ":")
     for slide, o_slide, units in zip(content["slides"], outline["slides"], pptx_units(pptx)):
         atoms, texts = expected_items(slide)
-        allowed = normalize("".join(atoms + texts + o_slide.get("bullets", []) + [o_slide.get("footer", "")]))
+        # 表紙キッカー（機密区分ラベル）は adapter が metadata から導出し往復検査済みの表示
+        allowed = normalize("".join(atoms + texts + o_slide.get("bullets", []) + [o_slide.get("footer", ""),
+                                                                                  o_slide.get("kicker", "")]))
         extra = [u for u in units if (n := normalize(u).removeprefix(label)) and n not in allowed]
         if extra:
             found[slide["id"]] = sorted(set(extra))
@@ -259,6 +262,48 @@ def check_content_in_pdf(content: dict, pdf: Path, pages: int) -> list[str]:
                 missing.append(f"{slide['id']}: 「{a}」")
         missing += [f"{slide['id']}: 「{m}」" for m in match_items([], texts, ["".join(lines)])]
     return missing
+
+
+# 和文タイトルの長さ上限（全角換算、半角は0.5字）。docs/design-rules.md J-2（carnot 規約の翻案）
+TITLE_WARN_WIDTH = 40
+TITLE_FAIL_WIDTH = 80
+# 泣き別れ: 折り返した最終行がこの文字数以下（docs/design-rules.md J-3）
+ORPHAN_MAX_CHARS = 3
+
+
+def display_width(text: str) -> float:
+    return sum(0.5 if unicodedata.east_asian_width(ch) in ("Na", "H") else 1.0 for ch in text)
+
+
+def find_orphan(text: str, lines: list[str]) -> str | None:
+    """PDF の行列から text を構成する連続行を探し、最終行が短すぎれば（泣き別れ）その行を返す。"""
+    target = normalize(text)
+    for i in range(len(lines)):
+        joined = ""
+        for j in range(i, len(lines)):
+            joined += lines[j]
+            if joined == target:
+                return lines[j] if j > i and len(lines[j]) <= ORPHAN_MAX_CHARS else None
+            if not target.startswith(joined):
+                break
+    return None
+
+
+def check_japanese(content: dict, page_texts: list[str]) -> tuple[list[str], list[str]]:
+    """和文組版の検査。(FAIL にする項目, 警告) を返す。"""
+    errors, warnings = [], []
+    for slide, text in zip(content["slides"], page_texts):
+        sid = slide["id"]
+        width = display_width(slide["title"])
+        if width > TITLE_FAIL_WIDTH:
+            errors.append(f"{sid}: タイトルが全角換算 {width:g} 字（上限 {TITLE_FAIL_WIDTH}）")
+        elif width > TITLE_WARN_WIDTH:
+            warnings.append(f"{sid}: タイトルが全角換算 {width:g} 字（目安 {TITLE_WARN_WIDTH} 字以内）")
+        lines = [normalize(ln) for ln in text.splitlines() if ln.strip()]
+        for label, value in (("タイトル", slide["title"]), ("要点", slide.get("takeaway", ""))):
+            if value and (orphan := find_orphan(value, lines)):
+                warnings.append(f"{sid}: {label}の泣き別れ（最終行「{orphan}」）")
+    return errors, warnings
 
 
 def check_fonts(fonts: list[dict]) -> list[str]:
@@ -314,7 +359,7 @@ def build(content_path: Path, design_path: Path, out: Path) -> dict:
 
     # 2. PPTX（固定コミットの上流レンダラ）
     pptx = out / "deck.pptx"
-    render_pptx(outline_path, pptx, outline["psl"]["render"]["style_preset"])
+    render_pptx(outline_path, pptx)
 
     # 3. PDF / 4. PNG
     pdf = convert_pdf(pptx, out)
@@ -329,6 +374,7 @@ def build(content_path: Path, design_path: Path, out: Path) -> dict:
     fonts = pdf_fonts(pdf)
     missing = check_content_in_pptx(content, pptx)
     missing_pdf = check_content_in_pdf(content, pdf, pages)
+    ja_errors, ja_warnings = check_japanese(content, pdf_page_texts(pdf, pages))
     font_errors = check_fonts(fonts)
     non_content = find_non_content_text(content, outline, pptx)
 
@@ -362,13 +408,16 @@ def build(content_path: Path, design_path: Path, out: Path) -> dict:
             "content_missing_in_pptx": missing,
             "content_missing_in_pdf": missing_pdf,
             "font_errors": font_errors,
+            "japanese_errors": ja_errors,
+            # 警告（FAIL にしない）: 和文組版の目安違反。内容担当がタイトルを見直す判断材料
+            "japanese_warnings": ja_warnings,
             # 警告（FAIL にしない）: content 由来でない文言。日本語テーマ（#5）で解消する
             "non_content_text": non_content,
         },
     }
     (out / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     write_gallery(out, content["metadata"]["title"], pngs, slide_ids, "manifest.json")
-    errors = [f"PPTX {e}" for e in missing] + [f"PDF {e}" for e in missing_pdf] + font_errors
+    errors = [f"PPTX {e}" for e in missing] + [f"PDF {e}" for e in missing_pdf] + font_errors + ja_errors
     if errors:
         raise BuildError("検査 FAIL:\n" + "\n".join(f" - {e}" for e in errors))
     return manifest
@@ -387,6 +436,8 @@ def main() -> int:
     except (BuildError, ValueError, OSError, adapter.validate.yaml.YAMLError) as exc:
         print(f"FAIL: {exc}", file=sys.stderr)
         return 1
+    for w in m["checks"]["japanese_warnings"]:
+        print(f"WARN: {w}")
     if m["checks"]["non_content_text"]:
         print("WARN: content 由来でない文言（レンダラ装飾）: " + json.dumps(m["checks"]["non_content_text"], ensure_ascii=False))
     print(f"PASS: {m['slides']} スライド → {out}/deck.pptx, deck.pdf ({m['pdf_pages']} ページ), png/, index.html")

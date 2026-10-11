@@ -94,6 +94,7 @@ class AdapterTests(unittest.TestCase):
             "audience欠落": lambda o: o["psl"]["metadata"].pop("audience"),
             "objective改変": lambda o: o["psl"]["metadata"].__setitem__("objective", "別の目的"),
             "デッキタイトル改変": lambda o: o.__setitem__("title", "別タイトル"),
+            "表紙キッカー改変": lambda o: o["slides"][0].__setitem__("kicker", "POLICY BRIEF"),
             "単位表示改変": lambda o: o["slides"][4].__setitem__("caption", "単位: 個"),
             "注記表示欠落": lambda o: o["slides"][3].pop("footer"),
         }
@@ -155,9 +156,31 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual(s004["table"]["footnotes"], ["比較は概念上のもの"])
         self.assertNotIn("bullets", s004)
 
+    def test_cover_uses_wide_layout_and_classification_label(self):
+        cover = self.convert()["slides"][0]
+        self.assertEqual((cover["title_layout"], cover["kicker"]), ("light-atlas", "公開資料"))
+
+    def test_low_contrast_theme_fails(self):
+        def pale(_, d):
+            d["theme"]["colors"]["foreground"] = "#C0C4CC"  # 明るい背景に薄い文字
+        with self.assertRaises(adapter.DesignError):
+            self.convert(pale)
+        def pale_accent(_, d):
+            d["theme"]["colors"]["accent"] = "#38BDF8"  # 白の表ヘッダ文字が読めない
+        with self.assertRaises(adapter.DesignError):
+            self.convert(pale_accent)
+
+    def test_dark_design_keeps_content_identical(self):
+        # デザインだけを差し替えても content の hash・意味項目は変わらない（#5 DoD）
+        _, dark = adapter.load_and_validate(CONTENT, ROOT / "examples/technical-architecture/design-dark.yaml")
+        light_outline, dark_outline = adapter.convert(self.content, self.design), adapter.convert(self.content, dark)
+        self.assertEqual(light_outline["psl"]["content_sha256"], dark_outline["psl"]["content_sha256"])
+        self.assertEqual(adapter.outline_semantic_items(light_outline), adapter.outline_semantic_items(dark_outline))
+        self.assertEqual(dark_outline["psl"]["render"]["style_preset"], "midnight-neon")
+
     def test_unapplied_design_is_explicit(self):
         unapplied = self.convert()["psl"]["unapplied_design"]
-        self.assertIn("theme.fonts", unapplied)
+        self.assertNotIn("theme.fonts", unapplied)
         self.assertIn("overrides.s001.density", unapplied)
 
     def test_number_format_is_stable(self):

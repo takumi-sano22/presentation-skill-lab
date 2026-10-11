@@ -1,5 +1,6 @@
-# イメージには requirements と上流の package*.json だけを入れる
+# イメージには requirements・上流の package*.json・フォント別名定義だけを入れる
 *
 !requirements-dev.txt
 !vendor/presentation-skill/package.json
 !vendor/presentation-skill/package-lock.json
+!docker/fonts.conf
