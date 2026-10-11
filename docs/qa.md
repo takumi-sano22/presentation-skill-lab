@@ -22,7 +22,7 @@
 | 編集性 | 埋め込み PNG の構造・画像スライドの配置 | `build.check_media` | FAIL |
 | 描画環境 | PDF のフォント埋め込み・日本語フォント・Type 3 なし、テーマ書体の解決 | `build` | FAIL |
 | 権利 | 画像アセットの出自・ライセンス・ハッシュ・寸法など | `assets` | FAIL |
-| 入力 | 引用符なしの文言中の「 #」（直後が空白でない。`Issue #19` など）は YAML コメントとして以降が捨てられる。`--public-repo-check` で FAIL、それ以外は警告。「 # 」（# の後に空白）は意図したコメントとして警告のみ | `validate.yaml_comment_issues` | FAIL / 警告 |
+| 入力 | 引用符なしの文言（plain scalar）の直後の「 #」（直後が空白でない。`Issue #19` など）は YAML コメントとして以降が捨てられる。YAML のスキャナで判定し、引用符付き・ブロックスカラー（`|` / `>`）は対象外。`--public-repo-check` で FAIL、それ以外は警告。「 # 」（# の後に空白）は意図したコメントとして警告のみ | `validate.yaml_comment_issues` | FAIL / 警告 |
 | 参考 | 図の辺の交差数、content 由来でない文言 | `build` | 記録・警告 |
 
 ## 誤検知の除外（`<deck>/qa-exceptions.yaml`）
