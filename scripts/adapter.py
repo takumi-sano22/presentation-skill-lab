@@ -20,10 +20,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import assets  # noqa: E402  画像アセット manifest
 import diagram as diagram_layout  # noqa: E402  ネイティブ図の配置計算
+import er as er_layout  # noqa: E402  ER 図の配置計算・SVG フォールバック
 import validate  # noqa: E402  入力契約の検証を共有する
 
 ADAPTER_VERSION = "0.1.0"
-SUPPORTED_SCHEMA_VERSIONS = {"0.1"}
+# 0.2 は 0.1 の互換追加（ER の属性・PK/FK・多重度・関係 ID）。0.1 の入力は同じ出力になる
+SUPPORTED_SCHEMA_VERSIONS = {"0.1", "0.2"}
 JS_MAX_SAFE_INTEGER = 2**53 - 1
 
 # design.theme.name → 上流のプリセット名。上流は deck_style からではなく CLI の --style-preset で
@@ -172,8 +174,19 @@ def diagram_items(diagram: dict) -> list[tuple[str, str]]:
         for key in ("kind", "group", "description"):
             if n.get(key):
                 items.append((f"diagram.node.{key}", f"{n['id']}:{n[key]}"))
+        # v0.2: ER の属性（名前・型・PK・FK 参照先・nullable）。順序も意味として比較する
+        for a in n.get("attributes", []):
+            items.append(("diagram.node.attribute", f"{n['id']}:{json.dumps(a, ensure_ascii=False, sort_keys=True)}"))
     for e in diagram.get("edges", []):
-        items.append(("diagram.edge", f"{e['from']}->{e['to']}:{e.get('label', '')}:{e.get('kind', '')}"))
+        value = f"{e['from']}->{e['to']}:{e.get('label', '')}:{e.get('kind', '')}"
+        # v0.2 の項目は指定されたときだけ付ける（0.1 の入力の意味項目を変えない）
+        if e.get("id"):
+            value += f":id={e['id']}"
+        if e.get("cardinality"):
+            value += f":card={e['cardinality']['from']}/{e['cardinality']['to']}"
+        if e.get("fk"):
+            value += f":fk={','.join(e['fk'])}"
+        items.append(("diagram.edge", value))
     return items
 
 
@@ -255,7 +268,21 @@ def outline_semantic_items(outline: dict) -> list[tuple[str, str, str]]:
             if s.get("footer") != " ／ ".join(meta["cover_body"]):
                 raise ContentMismatch(f"{sid}: 表紙本文の footer が一致しません")
             bullets = list(meta["cover_body"])
-        if diagram and meta.get("diagram_layout"):
+        if diagram and meta.get("er_layout"):
+            # ネイティブ ER: 配置結果のエンティティ・属性行・関係・多重度が定義と一致すること
+            if er_layout_items(meta["er_layout"]) != er_definition_items(diagram):
+                raise ContentMismatch(f"{sid}: ER 図の配置結果が定義と一致しません")
+        elif diagram and meta.get("er_svg"):
+            # SVG 例外: 埋め込む SVG が定義から再生成したものと一致し、全ての文字列と関係を含むこと
+            svg = meta["er_svg"]["svg"]
+            if sha256_text(svg) != meta["er_svg"]["sha256"] or sha256_text(svg) != meta["fallback"]["svg_sha256"]:
+                raise ContentMismatch(f"{sid}: ER 図の SVG がハッシュと一致しません")
+            if meta["fallback"]["source_sha256"] != er_source_hash(diagram):
+                raise ContentMismatch(f"{sid}: ER 図の SVG の元定義ハッシュが一致しません")
+            if sorted(er_layout.svg_texts(svg)) != sorted(er_layout.expected_texts(diagram)) or \
+                    er_layout.svg_edges(svg) != [(e["from"], e["to"]) for e in diagram.get("edges", [])]:
+                raise ContentMismatch(f"{sid}: ER 図の SVG の文字・関係が定義と一致しません")
+        elif diagram and meta.get("diagram_layout"):
             # ネイティブ図: 配置結果のノード・辺が図の定義と一致すること（描画対象の取りこぼし・改変を検出）
             lay = meta["diagram_layout"]
             if ([(n["id"], n["label"]) for n in lay["nodes"]] != [(n["id"], n["label"]) for n in diagram["nodes"]] or
@@ -311,6 +338,24 @@ def outline_semantic_items(outline: dict) -> list[tuple[str, str, str]]:
     return items
 
 
+def er_definition_items(diagram: dict) -> list:
+    """ER 定義から、描画に現れるべき構造（エンティティ・行・関係・多重度）を作る。"""
+    return ([(n["id"], n["label"], [r["text"] for r in er_layout.entity_rows(n)]) for n in diagram["nodes"]],
+            [(e["from"], e["to"], e.get("label", ""), (e.get("cardinality") or {}).get("from", ""),
+              (e.get("cardinality") or {}).get("to", "")) for e in diagram.get("edges", [])])
+
+
+def er_layout_items(lay: dict) -> list:
+    return ([(en["id"], en["label"], [r["text"] for r in en["rows"]]) for en in lay["entities"]],
+            [(e["from"], e["to"], e["label"], e["cardinality"].get("from", ""), e["cardinality"].get("to", ""))
+             for e in lay["edges"]])
+
+
+def er_source_hash(diagram: dict) -> str:
+    """SVG の元定義（content の図）のハッシュ。SVG が正本でないことの追跡用。"""
+    return sha256_text(canonical_json(diagram))
+
+
 def verify_roundtrip(content: dict, outline: dict) -> None:
     """意味項目の完全一致（順序込み）を検査する。欠落・改変・追加のいずれも FAIL。"""
     before, after = semantic_items(content), outline_semantic_items(outline)
@@ -339,7 +384,58 @@ def place_image(entry: dict, fit: str) -> dict:
     return {k: round(v, 4) for k, v in (("x", ax + (aw - w) / 2), ("y", ay + (ah - h) / 2), ("w", w), ("h", h))}
 
 
-def convert_slide(s: dict, override: dict, asset_base: Path | None = None, output_dir: Path | None = None) -> dict:
+# ER 図の配置ポリシー（ADR-0002）。design の diagram_mode で選ぶ:
+#   未指定 = auto（ネイティブを試し、満たせなければ理由付きで SVG へ）/ native = native_only（満たせなければ FAIL）/ svg = 常に SVG
+ER_POLICIES = {None: "auto", "native": "native_only", "svg": "svg"}
+ER_SVG_EDITABILITY = "画像全体の選択・移動・差し替えのみ。図内部の文字・線は PowerPoint で個別に編集できない（content.yaml を直して再生成する）"
+
+
+def convert_er(sid: str, d: dict, override: dict, theme: dict | None, meta: dict) -> None:
+    mode = override.get("diagram_mode")
+    if mode not in ER_POLICIES:
+        raise UnsupportedContent(f"{sid}: ER 図の diagram_mode '{mode}' は未対応です（native / svg / 未指定=auto）")
+    policy = ER_POLICIES[mode]
+    reason = "design.overrides.diagram_mode: svg（デザイン担当が明示）"
+    metrics = er_layout.metrics_of(d)
+    if policy != "svg":
+        try:
+            meta["er_layout"] = er_layout.layout(d)
+            meta["er_policy"] = policy
+            return
+        except er_layout.ERLayoutError as exc:
+            if policy == "native_only":
+                raise UnsupportedContent(f"{sid}: ER 図をネイティブで安全に配置できません（native_only）: {exc.reason}") from exc
+            reason, metrics = exc.reason, exc.metrics
+    if theme is None:
+        raise UnsupportedContent(f"{sid}: ER 図の SVG 生成にはテーマが必要です")
+    try:
+        svg, natural = er_layout.to_svg(d, theme["colors"])
+    except er_layout.ERLayoutError as exc:
+        # SVG でも重ならずに描けない図は、崩れた画像を出さずに FAIL させる
+        raise UnsupportedContent(f"{sid}: ER 図をネイティブでも SVG でも配置できません: {reason} / SVG: {exc.reason}") from exc
+    ax, ay, aw, ah = IMAGE_AREA
+    w_in, h_in = natural["size_in"]["w"], natural["size_in"]["h"]
+    scale = min(aw / w_in, ah / h_in, 1.0)
+    w, h = w_in * scale, h_in * scale
+    meta["er_policy"] = policy
+    meta["er_svg"] = {"svg": svg, "sha256": sha256_text(svg),
+                      **{k: round(v, 4) for k, v in (("x", ax + (aw - w) / 2), ("y", ay + (ah - h) / 2), ("w", w), ("h", h))}}
+    meta["fallback"] = {
+        "mode": "svg", "policy": policy, "reason": reason, "slide_id": sid,
+        "source_sha256": er_source_hash(d), "svg_sha256": sha256_text(svg),
+        "imaged": "ER 図全体（エンティティ・属性・関係線・多重度・関係名）",
+        "editable": ER_SVG_EDITABILITY,
+        # 縮小後の実効文字サイズ。小さすぎる場合はスライド分割を内容担当へ提案する
+        "effective_attr_font_pt": round(natural["attr_font_pt"] * scale, 2),
+        # 9pt で読める大きさに戻すのに必要な面積比から、分割枚数の目安を出す（内容の分割は内容担当の判断）
+        "suggestion": f"ER 図を約 {max(2, math.ceil((er_layout.ATTR_FONT_STEPS[-1] / max(natural['attr_font_pt'] * scale, 0.1)) ** 2))} 枚に分割すると"
+                      "ネイティブ図にできる見込み（内容担当の判断）",
+        "metrics": metrics,
+    }
+
+
+def convert_slide(s: dict, override: dict, asset_base: Path | None = None, output_dir: Path | None = None,
+                  theme: dict | None = None) -> dict:
     sid = s["id"]
     # 上流へ写像先がない design 指定は、成功扱いで無視せず FAIL させる
     if "notes" in override:
@@ -397,13 +493,14 @@ def convert_slide(s: dict, override: dict, asset_base: Path | None = None, outpu
         meta["chart_unit"] = ch["unit"]
 
     if d := s.get("diagram"):
-        if override.get("diagram_mode", "native") != "native":
-            raise UnsupportedContent(f"{sid}: diagram_mode '{override['diagram_mode']}' は未対応（#7）")
+        # ER 以外の図はネイティブだけ。ER は diagram_mode でポリシーを選ぶ（convert_er）
+        if key != "er" and override.get("diagram_mode", "native") != "native":
+            raise UnsupportedContent(f"{sid}: diagram_mode '{override['diagram_mode']}' は ER 図以外では未対応です")
         meta["diagram"] = d
         if key == "er":
-            # ER 図の複雑な関係は当面ネイティブ配置しない（#7 で SVG）。全ラベル・接続をテキスト行で保持する明示的フォールバック
-            meta["fallback"] = "diagram-as-text"
-            bullets += diagram_lines(d)
+            if bullets:
+                raise UnsupportedContent(f"{sid}: ER 図のスライドに本文は置けません（図の領域と重なるため。注記は notes を使う）")
+            convert_er(sid, d, override, theme, meta)
         else:
             if bullets:
                 raise UnsupportedContent(f"{sid}: 図のスライドに本文は置けません（図の領域と重なるため。注記は notes を使う）")
@@ -481,7 +578,7 @@ def convert(content: dict, design: dict, asset_base: Path | None = None, output_
             "theme": theme,
             "render": {"style_preset": THEME_PRESETS[theme["name"]]},
         },
-        "slides": [convert_slide(s, overrides.get(s["id"], {}), asset_base, output_dir) for s in content["slides"]],
+        "slides": [convert_slide(s, overrides.get(s["id"], {}), asset_base, output_dir, theme) for s in content["slides"]],
     }
     for slide in outline["slides"]:
         if slide["type"] == "title":

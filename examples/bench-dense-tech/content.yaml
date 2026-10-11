@@ -27,7 +27,7 @@ slides:
         - {from: orders, to: customer, label: 多対一, kind: relationship}
         - {from: item, to: orders, label: 多対一, kind: relationship}
         - {from: item, to: product, label: 多対一, kind: relationship}
-    notes: 'ER 図はテキスト表示（ネイティブ化は Issue #19 で検討）'
+    notes: 'ER 図はネイティブ図形で表示（Issue #19）'
   - id: d303
     type: table
     title: 整合性は3つのSQLで毎日検査する

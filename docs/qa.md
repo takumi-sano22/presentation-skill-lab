@@ -15,9 +15,11 @@
 | 幾何 | `autofit-expansion`: `spAutoFit`（図形を文字に合わせて伸ばす）の枠が、縦位置（anchor）に応じて上下へ、折り返さない枠（`wrap="none"`）は段落の水平位置に応じて左右へ伸びた部分で他の文字・表・グラフ・画像と重なる、またはスライド外に出る。`normAutofit`（文字を縮小）とは区別し、こちらは縮小後の実効サイズを `min-font` で検査 | `qa` | FAIL |
 | 文字 | `min-font`: 9pt 未満の文字（J-1。上流の補助ラベルは描画時に 9pt へ引き上げる） | `qa` / `render.js` | FAIL |
 | 文字 | タイトル長（全角換算 40 字超は警告、80 字超は FAIL）・泣き別れ（警告） | `build.check_japanese` | FAIL / 警告 |
-| 図 | `connector-crossing`: 図の線が端点以外のノード・ラベル・区画名・凡例を貫通 | `qa` | FAIL |
+| 図 | `connector-crossing`: 図の線が端点以外のノード・ラベル・区画名・凡例を貫通。ER の関係線が端点以外のエンティティ見出し・属性行・多重度・関係名を貫通 | `qa` | FAIL |
 | 図 | ノード図形の存在・重なり 0、辺の始終点が正しいノード境界、終点の矢印、content に無いノード・辺が無い | `build.check_diagram_in_pptx` | FAIL |
-| 編集性 | `rasterized-table` / `rasterized-chart` / `rasterized-diagram`: manifest に登録のない画像（表・グラフ・図・本文の画像化の疑い） | `qa` | FAIL |
+| ER | ネイティブ: 見出し・属性行の文字と所属（枠内）、枠の重なり 0、関係線の連続・始点＝外部キー側の境界かつ FK 行の高さ・終点＝参照先の境界（反転・接続先誤りの検出）、多重度・関係名の文字と位置、定義に無い er-* 図形なし。SVG 例外: 画像の配置、埋め込み SVG のハッシュが manifest と一致し全文字列・関係を含む | `build.check_er_in_pptx` | FAIL |
+| ER | SVG 例外の一覧と、縮小後の実効文字サイズが 9pt 未満のときの分割提案 | `build.er_fallback_warnings` | 警告 |
+| 編集性 | `rasterized-table` / `rasterized-chart` / `rasterized-diagram`: manifest に登録のない画像（表・グラフ・図・本文の画像化の疑い）。ER の SVG 例外（`er-svg:<Slide ID>`、adapter が理由とハッシュを記録したもの）だけは許可 | `qa` | FAIL |
 | 編集性 | `missing-native-table` / `missing-native-chart`: 表・グラフがネイティブオブジェクトでない | `qa` | FAIL |
 | 編集性 | 埋め込み PNG の構造・画像スライドの配置 | `build.check_media` | FAIL |
 | 描画環境 | PDF のフォント埋め込み・日本語フォント・Type 3 なし、テーマ書体の解決 | `build` | FAIL |

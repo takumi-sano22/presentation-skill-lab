@@ -70,13 +70,17 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual([n["id"] for n in lay["nodes"]], ["user", "policy", "agent", "tool", "db"])
         self.assertEqual(len(lay["edges"]), 5)
 
-    def test_er_diagram_falls_back_to_text_explicitly(self):
+    def test_er_layout_never_falls_back_to_text(self):
+        # ADR-0002: ER はネイティブ図形が原則。配置できなければ理由付きの SVG（auto）で、テキスト行へは後退しない
         def to_er(_, d):
             d["overrides"]["s003"] = {"layout": "er"}
         s003 = self.convert(to_er)["slides"][2]
-        self.assertEqual(s003["psl"]["fallback"], "diagram-as-text")
-        self.assertIn("利用者 → オーケストレータ（質問）", s003["bullets"])
-        self.assertIn("Query Tool → 分析DB（架空）（フィルタ付き取得）", s003["bullets"])
+        self.assertNotIn("bullets", s003)
+        psl = s003["psl"]
+        self.assertTrue(psl.get("er_layout") or psl.get("er_svg"))
+        if psl.get("fallback"):
+            self.assertEqual(psl["fallback"]["mode"], "svg")
+            self.assertTrue(psl["fallback"]["reason"])
 
     def test_diagram_attributes_are_kept(self):
         def enrich(c, _):

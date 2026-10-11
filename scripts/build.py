@@ -27,6 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import adapter  # noqa: E402
 import assets  # noqa: E402
 import diagram as diagram_layout  # noqa: E402
+import er as er_layout  # noqa: E402
 import qa  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -235,11 +236,23 @@ def diagram_labels(slide: dict) -> list[str]:
     return labels + list(dict.fromkeys(n["group"] for n in d["nodes"] if n.get("group")))
 
 
+def diagram_render_mode(outline: dict | None, index: int) -> str:
+    """図の描き方: native（構成図のネイティブ図形）/ er（ER のネイティブ図形）/ er-svg（ER の SVG 例外）/ text。"""
+    psl = outline["slides"][index]["psl"] if outline else {}
+    if psl.get("diagram_layout"):
+        return "native"
+    if psl.get("er_layout"):
+        return "er"
+    if psl.get("er_svg"):
+        return "er-svg"
+    return "text"
+
+
 def is_native_diagram(outline: dict | None, index: int) -> bool:
-    return bool(outline and outline["slides"][index]["psl"].get("diagram_layout"))
+    return diagram_render_mode(outline, index) == "native"
 
 
-def expected_items(slide: dict, native_diagram: bool = False) -> tuple[list[str], list[str]]:
+def expected_items(slide: dict, native_diagram: bool | str = False) -> tuple[list[str], list[str]]:
     """スライド上に現れるべき内容を (完全一致で照合する原子値, 部分照合する文章) に分ける。
 
     原子値: 表ヘッダ・セル、グラフのカテゴリ・系列名・値（短い値の部分一致で見逃さないため完全一致）。
@@ -257,10 +270,16 @@ def expected_items(slide: dict, native_diagram: bool = False) -> tuple[list[str]
         atoms += ch["categories"] + [se["name"] for se in ch["series"]]
         atoms += [adapter.format_number(v) for se in ch["series"] for v in se["values"]]
         texts.append(adapter.chart_unit_title(ch["unit"]))
+    mode = "native" if native_diagram is True else (native_diagram or "text")
     if slide.get("diagram"):
-        if native_diagram:
+        if mode == "native":
             # ネイティブ図: ノード・辺ラベル等は各図形の段落として現れるため原子値で照合する
             atoms += diagram_labels(slide)
+        elif mode == "er":
+            # ネイティブ ER: エンティティ名・属性行・関係名・多重度は各図形の段落として現れる
+            atoms += er_layout.expected_texts(slide["diagram"])
+        elif mode == "er-svg":
+            pass  # SVG 例外: 図の文字は PPTX の段落ではなく SVG の中にある（check_er_in_pptx で SVG を検査）
         else:
             # テキスト行フォールバック（ER 図）: ノード・矢印ラベルは各行に含まれる
             texts += adapter.diagram_lines(slide["diagram"])
@@ -300,7 +319,7 @@ def check_content_in_pptx(content: dict, pptx: Path, outline: dict | None = None
         return [f"PPTX のスライド数 {len(units)} が content の {len(content['slides'])} と一致しません"]
     missing = []
     for i, (slide, slide_units) in enumerate(zip(content["slides"], units)):
-        items = expected_items(slide, is_native_diagram(outline, i))
+        items = expected_items(slide, diagram_render_mode(outline, i))
         missing += [f"{slide['id']}: 「{m}」" for m in match_items(*items, slide_units)]
     return missing
 
@@ -313,8 +332,8 @@ def find_non_content_text(content: dict, outline: dict, pptx: Path) -> dict[str,
     found: dict[str, list[str]] = {}
     # 出典ラベル（adapter が deck_style.footer_source_label で指定）は装飾ではなく既知の表示枠
     label = normalize(outline["deck_style"].get("footer_source_label", "") + ":")
-    for slide, o_slide, units in zip(content["slides"], outline["slides"], pptx_units(pptx)):
-        atoms, texts = expected_items(slide, bool(o_slide["psl"].get("diagram_layout")))
+    for i, (slide, o_slide, units) in enumerate(zip(content["slides"], outline["slides"], pptx_units(pptx))):
+        atoms, texts = expected_items(slide, diagram_render_mode(outline, i))
         # 図の凡例（線種の和文ラベル）は配置計算が辺の種類から導出した表示
         texts += [item["label"] for item in o_slide["psl"].get("diagram_layout", {}).get("legend", [])]
         # 表紙キッカー（機密区分ラベル）は adapter が metadata から導出し往復検査済みの表示
@@ -362,6 +381,29 @@ def check_diagram_text_in_pdf(slide: dict, lay: dict, words: list[tuple[float, f
     return missing
 
 
+def er_boxes_with_text(lay: dict) -> list[tuple[str, dict, list[str]]]:
+    """ネイティブ ER で、枠の中に描かれるべき文字列（見出し・属性行・多重度・関係名）。"""
+    items = []
+    for en in lay["entities"]:
+        items.append((f"er-entity:{en['id']}", {**en, "h": en["header_h"]}, [en["label"]]))
+        items += [(f"er-attr:{en['id']}:{k}", r, [r["text"]]) for k, r in enumerate(en["rows"])]
+    for e in lay["edges"]:
+        items += [(f"er-card:{e['index']}:{end}", b, [b["text"]]) for end, b in e.get("card_boxes", {}).items()]
+        if e.get("label_box"):
+            items.append((f"er-label:{e['index']}", e["label_box"], [e["label"]]))
+    return items
+
+
+def check_er_text_in_pdf(slide: dict, lay: dict, words: list[tuple[float, float, str]]) -> list[str]:
+    missing = []
+    for name, box, texts in er_boxes_with_text(lay):
+        inside = [w for w in words if box["x"] - 0.05 <= w[0] <= box["x"] + box["w"] + 0.05
+                  and box["y"] - 0.03 <= w[1] <= box["y"] + box["h"] + 0.03]
+        joined = normalize("".join(t for _, _, t in sorted(inside, key=lambda w: (round(w[1], 1), w[0]))))
+        missing += [f"{slide['id']}: 「{t}」（{name} の枠内）" for t in texts if normalize(t) not in joined]
+    return missing
+
+
 def table_frame(pptx: Path | None, index: int) -> dict | None:
     """スライド index のネイティブ表の位置と列の左端（インチ）。列は a:gridCol の幅から求める。"""
     if pptx is None:
@@ -401,8 +443,12 @@ def check_content_in_pdf(content: dict, pdf: Path, pages: int, outline: dict | N
     """
     missing = []
     for i, (slide, text) in enumerate(zip(content["slides"], pdf_page_texts(pdf, pages))):
-        atoms, texts = expected_items(slide)
-        if is_native_diagram(outline, i):
+        mode = diagram_render_mode(outline, i)
+        atoms, texts = expected_items(slide, "er-svg" if mode in ("er", "er-svg") else "text")
+        if mode == "er":
+            # ER のラベルも枠の位置で照合する（属性行は隣の行・関係線の多重度と読み順が混ざるため）
+            missing += check_er_text_in_pdf(slide, outline["slides"][i]["psl"]["er_layout"], pdf_words(pdf, i + 1))
+        if mode == "native":
             # 図のラベルは枠の位置で照合する（PDF の読み順では隣の図形の文字と混ざるため）
             texts = [t for t in texts if t not in adapter.diagram_lines(slide["diagram"])]
             missing += check_diagram_text_in_pdf(slide, outline["slides"][i]["psl"]["diagram_layout"], pdf_words(pdf, i + 1))
@@ -457,7 +503,8 @@ def pptx_named_shapes(pptx: Path, index: int) -> dict[str, dict]:
         shapes[name] = {"x": int(x) / EMU_PER_INCH, "y": int(y) / EMU_PER_INCH,
                         "w": int(cx) / EMU_PER_INCH, "h": int(cy) / EMU_PER_INCH,
                         "flipH": 'flipH="1"' in attrs, "flipV": 'flipV="1"' in attrs,
-                        "arrow": bool(re.search(r'<a:tailEnd type="(?!none)', block))}
+                        "arrow": bool(re.search(r'<a:tailEnd type="(?!none)', block)),
+                        "text": html.unescape("".join(re.findall(r"<a:t(?:\s[^>]*)?>([^<]*)</a:t>", block)))}
     return shapes
 
 
@@ -517,6 +564,186 @@ def check_diagram_in_pptx(content: dict, outline: dict, pptx: Path) -> list[str]
                 errors.append(f"{sid}: 辺 {key} の終点が {e['to']} の境界にありません")
             if not segs[-1][1]["arrow"]:
                 errors.append(f"{sid}: 辺 {key} の終点に矢印がありません（向きが表示されない）")
+    return errors
+
+
+def segment_points(shapes: dict[str, dict], prefix: str) -> tuple[list[tuple[float, float]], list[str]]:
+    """名前が prefix#<番号> の線分を番号順につなぎ、折れ線の点列を返す（途切れていればエラー）。"""
+    segs = sorted(((int(n.split("#")[1]), v) for n, v in shapes.items() if n.startswith(prefix + "#")))
+    pts, errors = [], []
+    for _, v in segs:
+        start = (v["x"] + (v["w"] if v["flipH"] else 0), v["y"] + (v["h"] if v["flipV"] else 0))
+        end = (v["x"] + (0 if v["flipH"] else v["w"]), v["y"] + (0 if v["flipV"] else v["h"]))
+        if pts and (abs(pts[-1][0] - start[0]) > 0.01 or abs(pts[-1][1] - start[1]) > 0.01):
+            errors.append("線分が途切れています")
+        pts += [start, end]
+    return pts, errors
+
+
+def svg_media(pptx: Path) -> dict[str, str]:
+    """PPTX に埋め込まれた SVG（sha256 → 本文）。"""
+    with zipfile.ZipFile(pptx) as z:
+        return {hashlib.sha256(z.read(n)).hexdigest(): z.read(n).decode("utf-8")
+                for n in z.namelist() if re.fullmatch(r"ppt/media/[^/]+\.svg", n)}
+
+
+def picture_media(pptx: Path, index: int, name: str) -> list[dict[str, bytes | None]]:
+    """スライド index の、名前が name の画像（p:pic）ごとに、実際に参照しているメディア（PNG と SVG）を返す。
+
+    パッケージ内に正しい SVG が残っていても、画像が別のメディアを参照していれば表示は改変される。
+    そのため名前の存在やパッケージ全体の検索ではなく、画像のリレーションを解決して中身を取り出す。
+    """
+    with zipfile.ZipFile(pptx) as z:
+        part = slide_part_names(z)[index]
+        xml = z.read(part).decode("utf-8")
+        rels_name = part.replace("slides/", "slides/_rels/") + ".rels"
+        rels = z.read(rels_name).decode("utf-8") if rels_name in z.namelist() else ""
+        targets = {rid: target for rid, target in re.findall(r'<Relationship [^>]*Id="([^"]+)"[^>]*Target="([^"]+)"', rels)}
+        # 属性順の違いにも対応する
+        targets |= {rid: target for target, rid in re.findall(r'<Relationship [^>]*Target="([^"]+)"[^>]*Id="([^"]+)"', rels)}
+
+        def read(rid: str | None) -> bytes | None:
+            if not rid or rid not in targets:
+                return None
+            path = (Path(part).parent / targets[rid]).as_posix()
+            parts = []
+            for seg in path.split("/"):
+                if seg == "..":
+                    parts.pop()
+                elif seg != ".":
+                    parts.append(seg)
+            full = "/".join(parts)
+            return z.read(full) if full in z.namelist() else None
+
+        found = []
+        for block in re.findall(r"<p:pic>.*?</p:pic>", xml, re.S):
+            m = re.search(r'<p:cNvPr[^>]*name="([^"]*)"', block)
+            if not m or html.unescape(m.group(1)) != name:
+                continue
+            png = re.search(r'<a:blip r:embed="([^"]+)"', block)
+            svg = re.search(r'<asvg:svgBlip[^>]*r:embed="([^"]+)"', block)
+            found.append({"png": read(png.group(1) if png else None), "svg": read(svg.group(1) if svg else None)})
+        return found
+
+
+def er_fallback_warnings(outline: dict) -> list[str]:
+    warnings = []
+    for s in outline["slides"]:
+        fb = s["psl"].get("fallback")
+        if isinstance(fb, dict) and fb.get("mode") == "svg":
+            msg = f"{fb['slide_id']}: ER 図を SVG で表示（理由: {fb['reason'][:80]}）。{fb['editable']}"
+            if fb["effective_attr_font_pt"] < er_layout.ATTR_FONT_STEPS[-1]:
+                msg += f"。縮小後の文字は約 {fb['effective_attr_font_pt']}pt。{fb['suggestion']}"
+            warnings.append(msg)
+    return warnings
+
+
+def check_er_in_pptx(content: dict, outline: dict, pptx: Path) -> list[str]:
+    """ER 図の表示が定義と一致するかを PPTX 実体で検査する（ADR-0002）。
+
+    ネイティブ:
+      - 全エンティティの枠・見出しがあり、枠どうしが重ならない。見出し・属性行・多重度・関係名の文字が定義どおり
+      - 属性行は自分のエンティティの枠の中にある（別のエンティティの属性として見えない）
+      - 関係線は連続し、始点が from（外部キーを持つ側）の枠の境界、終点が to の枠の境界にある（関係の反転・接続先誤りの検出）
+      - from に to を参照する FK 属性があれば、始点はその FK 行の高さにある
+      - 多重度ラベルは対応する端の近くにある。定義に無い er-* 図形がない
+    SVG 例外: 図全体の画像が置かれ、埋め込まれた SVG が manifest のハッシュと一致し、全ての文字列と関係を含む。
+    """
+    errors = []
+    for index, (slide, o_slide) in enumerate(zip(content["slides"], outline["slides"])):
+        meta = o_slide["psl"]
+        sid = slide["id"]
+        if meta.get("er_svg"):
+            pics = picture_media(pptx, index, f"er-svg:{sid}")
+            if len(pics) != 1:
+                errors.append(f"{sid}: ER 図の SVG 画像が1つ配置されていません（{len(pics)} 個）")
+                continue
+            raw = pics[0]["svg"]
+            if raw is None or hashlib.sha256(raw).hexdigest() != meta["fallback"]["svg_sha256"]:
+                errors.append(f"{sid}: 画像が参照する SVG が manifest の SVG（sha256 {meta['fallback']['svg_sha256'][:12]}）と一致しません")
+                continue
+            if pics[0]["png"] is None or not pics[0]["png"].startswith(b"\x89PNG"):
+                errors.append(f"{sid}: SVG 非対応環境向けの PNG 代替画像がありません")
+            svg = raw.decode("utf-8")
+            d = slide["diagram"]
+            if sorted(er_layout.svg_texts(svg)) != sorted(er_layout.expected_texts(d)):
+                errors.append(f"{sid}: SVG の文字列が ER 定義と一致しません")
+            if er_layout.svg_edges(svg) != [(e["from"], e["to"]) for e in d.get("edges", [])]:
+                errors.append(f"{sid}: SVG の関係が ER 定義と一致しません")
+            continue
+        lay = meta.get("er_layout")
+        if not lay:
+            continue
+        d = slide["diagram"]
+        shapes = pptx_named_shapes(pptx, index)
+        expected_names = set()
+        frames = {}
+        for n in d["nodes"]:
+            nid = n["id"]
+            frame, head = shapes.get(f"er-frame:{nid}"), shapes.get(f"er-entity:{nid}")
+            expected_names |= {f"er-frame:{nid}", f"er-head:{nid}", f"er-entity:{nid}"}
+            if frame is None or head is None:
+                errors.append(f"{sid}: エンティティ {nid} の枠または見出しがありません")
+                continue
+            frames[nid] = frame
+            if normalize(head["text"]) != normalize(n["label"]):
+                errors.append(f"{sid}: エンティティ {nid} の見出しが「{head['text']}」です（定義「{n['label']}」）")
+            for k, row in enumerate(er_layout.entity_rows(n)):
+                name = f"er-attr:{nid}:{k}"
+                expected_names.add(name)
+                shape = shapes.get(name)
+                if shape is None:
+                    errors.append(f"{sid}: {nid} の属性行 {k + 1}「{row['text']}」がありません")
+                    continue
+                if normalize(shape["text"]) != normalize(row["text"]):
+                    errors.append(f"{sid}: {nid} の属性行 {k + 1} が「{shape['text']}」です（定義「{row['text']}」）")
+                if not (frame["x"] - 0.01 <= shape["x"] and shape["x"] + shape["w"] <= frame["x"] + frame["w"] + 0.01 and
+                        frame["y"] - 0.01 <= shape["y"] and shape["y"] + shape["h"] <= frame["y"] + frame["h"] + 0.01):
+                    errors.append(f"{sid}: {nid} の属性行 {k + 1} が枠の外にあります")
+        ids = sorted(frames)
+        for i, a in enumerate(ids):
+            for b in ids[i + 1:]:
+                A, B = frames[a], frames[b]
+                if not (A["x"] + A["w"] <= B["x"] or B["x"] + B["w"] <= A["x"] or
+                        A["y"] + A["h"] <= B["y"] or B["y"] + B["h"] <= A["y"]):
+                    errors.append(f"{sid}: エンティティ {a} と {b} が重なります")
+        nodes = {n["id"]: n for n in d["nodes"]}
+        for i, e in enumerate(d.get("edges", [])):
+            key = f"er-edge:{i}:{e['from']}->{e['to']}"
+            pts, seg_errors = segment_points(shapes, key)
+            expected_names |= {n for n in shapes if n.startswith(key + "#")}
+            errors += [f"{sid}: 関係 {key} の{m}" for m in seg_errors]
+            if not pts:
+                errors.append(f"{sid}: 関係 {key} の線がありません")
+                continue
+            if e["from"] in frames and not on_boundary(pts[0], frames[e["from"]]):
+                errors.append(f"{sid}: 関係 {key} の始点が {e['from']}（外部キーを持つ側）の境界にありません")
+            if e["to"] in frames and not on_boundary(pts[-1], frames[e["to"]]):
+                errors.append(f"{sid}: 関係 {key} の終点が {e['to']}（参照される側）の境界にありません")
+            fk_names = er_layout.edge_fk_attributes(nodes, e)
+            fk_rows = [k for k, a in enumerate(nodes[e["from"]].get("attributes", [])) if a["name"] in fk_names[:1]]
+            if fk_rows:
+                row = shapes.get(f"er-attr:{e['from']}:{fk_rows[0]}")
+                if row and not row["y"] - 0.02 <= pts[0][1] <= row["y"] + row["h"] + 0.02:
+                    errors.append(f"{sid}: 関係 {key} の始点が FK 属性の行にありません")
+            for end, point in (("from", pts[0]), ("to", pts[-1])):
+                text = (e.get("cardinality") or {}).get(end)
+                name = f"er-card:{i}:{end}"
+                if not text:
+                    continue
+                expected_names.add(name)
+                card = shapes.get(name)
+                if card is None or normalize(card["text"]) != normalize(text):
+                    errors.append(f"{sid}: 関係 {key} の {end} 側の多重度「{text}」がありません")
+                elif abs(card["x"] + card["w"] / 2 - point[0]) > 0.6 or abs(card["y"] + card["h"] / 2 - point[1]) > 0.3:
+                    errors.append(f"{sid}: 関係 {key} の {end} 側の多重度「{text}」が線の端から離れています")
+            if e.get("label"):
+                expected_names.add(f"er-label:{i}")
+                lab = shapes.get(f"er-label:{i}")
+                if lab is None or normalize(lab["text"]) != normalize(e["label"]):
+                    errors.append(f"{sid}: 関係 {key} の名前「{e['label']}」がありません")
+        extra = sorted(n for n in shapes if n.startswith("er-") and n not in expected_names)
+        errors += [f"{sid}: ER 定義に無い図形 {n}" for n in extra]
     return errors
 
 
@@ -662,7 +889,7 @@ def build(content_path: Path, design_path: Path, out: Path) -> dict:
     missing = check_content_in_pptx(content, pptx, outline)
     missing_pdf = check_content_in_pdf(content, pdf, pages, outline, pptx)
     ja_errors, ja_warnings = check_japanese(content, pdf_page_texts(pdf, pages))
-    diagram_errors = check_diagram_in_pptx(content, outline, pptx)
+    diagram_errors = check_diagram_in_pptx(content, outline, pptx) + check_er_in_pptx(content, outline, pptx)
     media_errors = check_media(content, outline, pptx)
     # 総合 QA（幾何・最小文字サイズ・図の線の貫通・画像化）。除外は qa-exceptions.yaml（Slide ID・理由必須）
     try:
@@ -716,8 +943,12 @@ def build(content_path: Path, design_path: Path, out: Path) -> dict:
             "diagram_errors": diagram_errors,
             "media_errors": media_errors,
             "qa": qa_result,
-            "diagram_crossings": {s["psl"]["slide_id"]: diagram_layout.count_crossings(s["psl"]["diagram_layout"])
-                                  for s in outline["slides"] if s["psl"].get("diagram_layout")},
+            "diagram_crossings": {**{s["psl"]["slide_id"]: diagram_layout.count_crossings(s["psl"]["diagram_layout"])
+                                     for s in outline["slides"] if s["psl"].get("diagram_layout")},
+                                  **{s["psl"]["slide_id"]: s["psl"]["er_layout"]["metrics"]["crossings"]
+                                     for s in outline["slides"] if s["psl"].get("er_layout")}},
+            # 警告（FAIL にしない）: ER の SVG 例外で、縮小後の実効文字サイズが最小 9pt を下回る（分割を内容担当へ提案）
+            "er_fallback_warnings": er_fallback_warnings(outline),
             "japanese_errors": ja_errors,
             # 警告（FAIL にしない）: 和文組版の目安違反。内容担当がタイトルを見直す判断材料
             "japanese_warnings": ja_warnings,
@@ -755,7 +986,7 @@ def main() -> int:
     except (BuildError, ValueError, OSError, adapter.validate.yaml.YAMLError) as exc:
         print(f"FAIL: {exc}", file=sys.stderr)
         return 1
-    for w in m["checks"]["japanese_warnings"]:
+    for w in m["checks"]["japanese_warnings"] + m["checks"]["er_fallback_warnings"]:
         print(f"WARN: {w}")
     if m["checks"]["non_content_text"]:
         print("WARN: content 由来でない文言（レンダラ装飾）: " + json.dumps(m["checks"]["non_content_text"], ensure_ascii=False))

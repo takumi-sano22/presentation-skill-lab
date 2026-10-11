@@ -15,6 +15,15 @@
 | 破壊的変更 | 必須化、フィールド削除・改名、意味変更 | メジャー相当（ADR 必須） | ADR を先に作成（`docs/autonomy.md` の停止条件）。移行スクリプトと旧→新の変換テストを用意 |
 | 説明のみ | `title`/`description` の文言 | 変更なし | ハッシュ更新可。PR で「意味変更なし」を明記 |
 
+## 履歴
+
+| content | 変更 | Issue |
+|---|---|---|
+| 0.1 | 初版 | #1 |
+| 0.2 | 互換追加: `node.attributes[]`（name / type / pk / fk / nullable）、`edge.id`、`edge.cardinality{from,to}`、`edge.fk`（関係が表す FK 属性名）。0.2 の項目は `schema_version: '0.2'` かつ `type: er` のスライドでだけ使える（`validate.er_contract_errors`）。0.1 の入力の意味項目・出力は変わらない | #19 |
+
+design スキーマは v0.1 のまま（ER のポリシーは既存の `diagram_mode` に対応づけた）。
+
 ## 手順（互換追加）
 
 1. `schema_version` の `const` を `enum` に変えて新旧を受理する（例: `["0.1", "0.2"]`）。

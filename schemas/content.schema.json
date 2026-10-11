@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://example.org/presentation-skill-lab/content.schema.json",
-  "title": "Slide content contract v0.1",
+  "title": "Slide content contract v0.2 (v0.1 inputs remain valid)",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -12,7 +12,10 @@
   ],
   "properties": {
     "schema_version": {
-      "const": "0.1"
+      "enum": [
+        "0.1",
+        "0.2"
+      ]
     },
     "deck_id": {
       "$ref": "#/$defs/id"
@@ -95,6 +98,14 @@
         },
         "description": {
           "type": "string"
+        },
+        "attributes": {
+          "description": "v0.2: ER のエンティティ属性（type: er のスライドだけ）。順序どおりに表示する",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/attribute"
+          }
         }
       }
     },
@@ -123,6 +134,36 @@
             "sync",
             "relationship"
           ]
+        },
+        "id": {
+          "$ref": "#/$defs/id",
+          "description": "v0.2: 関係の安定 ID（任意）"
+        },
+        "cardinality": {
+          "description": "v0.2: ER の多重度。from は外部キーを持つ側（子）、to は参照される側（親）の端",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "from",
+            "to"
+          ],
+          "properties": {
+            "from": {
+              "$ref": "#/$defs/cardinality"
+            },
+            "to": {
+              "$ref": "#/$defs/cardinality"
+            }
+          }
+        },
+        "fk": {
+          "description": "v0.2: この関係を表す from 側の外部キー属性名（同じ参照先への FK が複数あるときに指定。複合 FK は複数）",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
         }
       }
     },
@@ -299,6 +340,43 @@
           "type": "string"
         }
       }
+    },
+    "attribute": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "pk": {
+          "type": "boolean",
+          "description": "主キーの構成列。複合主キーは複数の属性に true"
+        },
+        "fk": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_-]{1,63}\\.[^.].*$",
+          "description": "参照先 <エンティティID>.<属性名>"
+        },
+        "nullable": {
+          "type": "boolean"
+        }
+      }
+    },
+    "cardinality": {
+      "enum": [
+        "1",
+        "0..1",
+        "1..N",
+        "0..N"
+      ]
     }
   }
 }

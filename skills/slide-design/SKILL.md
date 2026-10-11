@@ -14,6 +14,8 @@ description: content.yaml の文言や数値を変えずに、技術スライド
 
 `scripts/build` で PPTX/PDF/PNG に変換できる。design.yaml の `theme`（technical-light / technical-dark、フォント、配色トークン）は適用済み。`density` は上流未対応のため未適用（`unapplied_design` に列挙）。日本語テーマ規約 J-1〜J-8（`docs/design-rules.md`）に従い、配色はコントラスト検査を通すこと。
 
+ER 図（layout: er）の `diagram_mode` はポリシー: 未指定=auto（ネイティブで読めなければ理由付きで SVG。図内部は編集不可になる）、`native`=ネイティブ必須（できなければ FAIL）、`svg`=常に SVG。編集性が要る資料では `native` を指定し、FAIL したら content 担当に分割を提案する。
+
 図（architecture / flow）は `diagram_mode: native` で自動配置・ネイティブ描画される。座標は指定しない。配置が崩れる（重なり・ラベル衝突等）場合はビルドが FAIL するので、ノード数・ラベル長を content 担当と調整するか、スライド分割を提案する。
 
 画像を使うときは `docs/assets.md` に従い、`assets/manifest.yaml` に出自・ライセンス・生成指示を記録する。図の中心データ（数値・表・構成要素名）は画像に焼き込まず、ネイティブの表・グラフ・図で表す。画像生成は人がチャットで明示的に指示したときだけ行う。

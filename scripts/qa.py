@@ -236,9 +236,25 @@ def check_slide(sid: str, slide: dict, o_slide: dict, shapes: list[Shape]) -> li
                     continue
                 if segment_crosses(seg, ob):
                     add("connector-crossing", f"{seg.name} / {ob.name}", f"線が「{ob.text[:12]}」を貫通します")
+    # connector: ER 図の関係線が、端点のエンティティ以外の見出し・属性行・多重度・関係名を貫通しない
+    if o_slide["psl"].get("er_layout"):
+        er_obstacles = [s for s in texted if s.name.startswith(("er-entity:", "er-attr:", "er-card:", "er-label:"))]
+        for seg in (s for s in shapes if s.name.startswith("er-edge:")):
+            index, ends = seg.name.split("#")[0][len("er-edge:"):].split(":", 1)
+            src, dst = ends.split("->")
+            own = (f"er-entity:{src}", f"er-entity:{dst}", f"er-attr:{src}:", f"er-attr:{dst}:",
+                   f"er-card:{index}:", f"er-label:{index}")
+            for ob in er_obstacles:
+                if ob.name == own[0] or ob.name == own[1] or ob.name.startswith(own[2:]):
+                    continue
+                if segment_crosses(seg, ob):
+                    add("connector-crossing", f"{seg.name} / {ob.name}", f"ER の関係線が「{ob.text[:12]}」を貫通します")
     # editability: 表・グラフ・図・本文が画像化されていない
     pics = [s for s in shapes if s.kind == "pic"]
     allowed_pics = {f"asset:{o_slide['psl']['image']['asset_ref']}"} if o_slide["psl"].get("image") else set()
+    # ER の SVG 例外（ADR-0002）: adapter がフォールバック理由と元定義のハッシュを記録した図だけを許す
+    if o_slide["psl"].get("er_svg"):
+        allowed_pics.add(f"er-svg:{sid}")
     for p in pics:
         if p.name in allowed_pics or p.w * p.h < 0.25:  # 登録アセットと小さな装飾アイコンは対象外
             continue
