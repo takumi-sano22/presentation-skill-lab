@@ -44,6 +44,21 @@ TYPE_MAP = {
 }
 
 
+# 上流 variant ごとに「描画される内容フィールド」と「必須フィールド」。
+# ここにない組み合わせは描画で消えるため、写像前に一括で FAIL させる（個別分岐の取りこぼしを防ぐ）
+VARIANT_FIELDS = {
+    "title": ({"body", "notes"}, set()),
+    "section": (set(), set()),
+    "standard": ({"body", "diagram", "notes", "source_refs"}, set()),
+    "table": ({"table", "body", "notes", "source_refs"}, {"table"}),
+    "chart": ({"chart", "notes", "source_refs"}, {"chart"}),
+    "image-sidebar": ({"asset_ref", "notes", "source_refs"}, {"asset_ref"}),
+}
+CONTENT_FIELDS = {"body", "diagram", "table", "chart", "asset_ref", "source_refs", "notes"}
+# 値軸がなく valAxisTitle では単位を表示できないグラフ種別
+CHART_TYPES_WITH_VALUE_AXIS = {"bar", "line"}
+
+
 class UnsupportedContent(ValueError):
     """outline.json へ忠実に写せない内容。黙って捨てずに FAIL させる。"""
 
@@ -250,6 +265,16 @@ def convert_slide(s: dict, override: dict, asset_base: Path, output_dir: Path) -
     if key not in TYPE_MAP:
         raise UnsupportedContent(f"{sid}: layout '{key}' に対応する上流 variant がありません")
     up_type, variant = TYPE_MAP[key]
+    allowed, required = VARIANT_FIELDS[variant]
+    present = {f for f in CONTENT_FIELDS if s.get(f)}
+    if extra := sorted(present - allowed):
+        raise UnsupportedContent(f"{sid}: layout '{key}'（上流 {variant}）では {extra} を表示できません")
+    if lacking := sorted(required - present):
+        raise UnsupportedContent(f"{sid}: layout '{key}'（上流 {variant}）には {lacking} が必要です")
+    if "diagram_mode" in override and not s.get("diagram"):
+        raise UnsupportedContent(f"{sid}: 図のないスライドに diagram_mode が指定されています")
+    if s.get("chart") and s["chart"]["type"] not in CHART_TYPES_WITH_VALUE_AXIS:
+        raise UnsupportedContent(f"{sid}: chart.type '{s['chart']['type']}' は単位を表示できないため未対応（#5）")
     # psl: 上流レンダラは解釈しない追跡用メタデータ（安定ID・逆写像に必要な情報）
     meta: dict = {"slide_id": sid, "content_type": s["type"], "layout": layout}
     out: dict = {"type": up_type, "variant": variant, "title": s["title"], "psl": meta}

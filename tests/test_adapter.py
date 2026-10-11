@@ -132,6 +132,12 @@ class AdapterTests(unittest.TestCase):
             "override notes": lambda c, d: d["overrides"]["s003"].__setitem__("notes", "メモ"),
             "中扉に本文": lambda c, d: c["slides"][5].update(type="section"),
             "グラフに本文": lambda c, d: c["slides"][4].__setitem__("body", ["補足"]),
+            "表なしでtable layout": lambda c, d: d["overrides"].__setitem__("s002", {"layout": "table"}),
+            "グラフなしでchart layout": lambda c, d: d["overrides"].__setitem__("s002", {"layout": "chart"}),
+            "画像なしでillustration": lambda c, d: d["overrides"].__setitem__("s002", {"layout": "illustration"}),
+            "図を表layoutで": lambda c, d: c["slides"][3].__setitem__("diagram", c["slides"][2]["diagram"]),
+            "図なしでdiagram_mode": lambda c, d: d["overrides"].__setitem__("s002", {"layout": "claim", "diagram_mode": "native"}),
+            "円グラフ": lambda c, d: c["slides"][4]["chart"].__setitem__("type", "pie"),
         }
         for name, mutate in cases.items():
             with self.subTest(name):
