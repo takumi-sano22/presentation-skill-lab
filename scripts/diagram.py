@@ -35,6 +35,7 @@ EDGE_KINDS = {
 }
 NODE_MAX_W = 1.9
 NODE_FONT_PT = 11
+NODE_MIN_FONT_PT = 9.5
 EDGE_FONT_PT = 9
 MIN_GAP_X = 0.62
 ORDER_SWEEPS = 8
@@ -67,6 +68,28 @@ class Box:
 
     def as_dict(self) -> dict:
         return {k: round(v, 4) for k, v in (("x", self.x), ("y", self.y), ("w", self.w), ("h", self.h))}
+
+
+# ノード種別の図形で、文字を置ける幅の割合（楕円・六角形は内側の文字領域が狭い）
+SHAPE_TEXT_RATIO = {"actor": 0.72, "policy": 0.72, "datastore": 0.95, "tool": 0.92}
+
+
+def text_area_width(kind: str, node_w: float) -> float:
+    return node_w * SHAPE_TEXT_RATIO.get(kind, 1.0) - 0.16
+
+
+def node_font_pt(label: str, node_w: float, kind: str = "") -> float:
+    """ノード名の文字サイズ。標準 11pt で折り返す場合、1行に収まるなら最小 NODE_MIN_FONT_PT まで下げる
+    （1〜2文字だけの折返しを避ける）。収まらなければ 11pt のまま2行にする。図形の文字領域の幅で判定する。"""
+    usable = text_area_width(kind, node_w)
+    if text_width_in(label, NODE_FONT_PT) <= usable:
+        return NODE_FONT_PT
+    pt = NODE_FONT_PT
+    while pt - 0.5 >= NODE_MIN_FONT_PT:
+        pt -= 0.5
+        if text_width_in(label, pt) <= usable:
+            return pt
+    return NODE_FONT_PT
 
 
 def text_width_in(text: str, pt: float) -> float:
@@ -105,6 +128,17 @@ def assign_ranks(node_ids: list[str], edges: list[dict]) -> dict[str, int]:
 
 
 def layout(diagram: dict) -> dict:
+    """配置を計算する。区画がある図は、まず層内等間隔で配置し、区画への侵入・重なり等で崩れる場合だけ
+    区画ごとの横帯に分ける配置へ切り替える（どちらでも崩れるなら LayoutError）。"""
+    try:
+        return _layout(diagram, bands=False)
+    except LayoutError:
+        if not any(n.get("group") for n in diagram["nodes"]):
+            raise
+        return _layout(diagram, bands=True)
+
+
+def _layout(diagram: dict, bands: bool) -> dict:
     nodes = diagram["nodes"]
     edges = diagram.get("edges", [])
     node_ids = [n["id"] for n in nodes]
@@ -117,8 +151,9 @@ def layout(diagram: dict) -> dict:
     node_h = NODE_H_WITH_DESC if has_desc else NODE_H
     # 凡例（辺の種類が2つ以上のとき）と区画の見出しの分だけ、配置領域を縮める
     legend = len(kinds) >= 2
-    area_y = AREA_Y + (GROUP_LABEL_H if group_names else 0.0)
-    area_h = AREA_H - (GROUP_LABEL_H if group_names else 0.0) - (LEGEND_H if legend else 0.0)
+    # 凡例の分だけ配置領域を縮める。区画の見出しは、層内等間隔なら上端に、帯なら各帯の中に確保する
+    area_y = AREA_Y + (GROUP_LABEL_H if group_names and not bands else 0.0)
+    area_h = AREA_H - (GROUP_LABEL_H if group_names and not bands else 0.0) - (LEGEND_H if legend else 0.0)
     rank = assign_ranks(node_ids, edges)
     n_ranks = max(rank.values()) + 1
 
@@ -168,11 +203,20 @@ def layout(diagram: dict) -> dict:
     gap_x = (AREA_W - node_w * n_ranks) / (n_ranks - 1) if n_ranks > 1 else 0.0
     points: dict[str, tuple[float, float]] = {}
     boxes: dict[str, Box] = {}
+    if bands:
+        # 区画がある図: 区画ごとに全層共通の横帯（y の範囲）を割り当て、区画外のノードが枠に入らないようにする
+        dummy_band = {}
+        for i, chain in enumerate(chains):
+            ga, gb = group_of[chain[0]], group_of[chain[-1]]
+            for d in chain[1:-1]:
+                dummy_band[d] = ga if ga == gb else ""
+        band_of = lambda v: dummy_band[v] if v.startswith("__d") else group_of[v]  # noqa: E731
+        centers = band_centers(layers, band_of, area_y, area_h, node_h)
     for r, layer in enumerate(layers):
         x = AREA_X + r * (node_w + gap_x)
         slot = area_h / len(layer)
         for i, v in enumerate(layer):
-            cy = area_y + slot * (i + 0.5)
+            cy = centers[v] if bands else area_y + slot * (i + 0.5)
             if v.startswith("__d"):
                 points[v] = (x + node_w / 2, cy)
             else:
@@ -232,14 +276,53 @@ def layout(diagram: dict) -> dict:
         "edge_font_pt": EDGE_FONT_PT,
         "group_font_pt": GROUP_FONT_PT,
         "nodes": [{"id": n["id"], "label": n["label"], "description": n.get("description", ""),
-                   "kind": n.get("kind", ""), **boxes[n["id"]].as_dict()} for n in nodes],
+                   "kind": n.get("kind", ""), "font_pt": node_font_pt(n["label"], node_w, n.get("kind", "")),
+                   **boxes[n["id"]].as_dict()} for n in nodes],
         "edges": [dict(e, dash=EDGE_KINDS[e["kind"]][1]) for e in edge_shapes],
         "groups": groups,
         "legend": legend_items,
     }
+    place_group_labels(result)
     place_edge_labels(result, gap_x)
     check_geometry(result)
+    result["layout_mode"] = "bands" if bands else "layers"
     return result
+
+
+BAND_GAP = 0.12
+NODE_GAP_Y = 0.18
+
+
+def band_centers(layers: list[list[str]], band_of, area_y: float, area_h: float, node_h: float) -> dict[str, float]:
+    """区画（帯）ごとに縦の範囲を決め、各要素の中心 y を返す。
+
+    帯の順序は並び替え後の平均位置、帯の高さは「その帯に属する要素が最も多い層の個数」で決める。
+    区画の帯には見出しと内側余白を確保する。収まらなければ LayoutError。
+    """
+    pos: dict[str, list[float]] = {}
+    for layer in layers:
+        for i, v in enumerate(layer):
+            pos.setdefault(band_of(v), []).append(i / max(1, len(layer) - 1))
+    bands = sorted(pos, key=lambda b: (sum(pos[b]) / len(pos[b]), b))
+    pitch = node_h + NODE_GAP_Y
+    most = {b: max(sum(1 for v in layer if band_of(v) == b) for layer in layers) for b in bands}
+    frame = {b: (GROUP_LABEL_H + GROUP_PAD, GROUP_PAD) if b else (0.0, 0.0) for b in bands}  # 上・下の余白
+    heights = {b: most[b] * pitch - NODE_GAP_Y + sum(frame[b]) for b in bands}
+    total = sum(heights.values()) + BAND_GAP * (len(bands) - 1)
+    if total > area_h + 1e-6:
+        raise LayoutError(f"区画が多すぎて縦に収まりません（必要 {total:.2f}in > {area_h:.2f}in）")
+    spare = (area_h - total) / (len(bands) + 1)
+    centers: dict[str, float] = {}
+    y = area_y + spare
+    for b in bands:
+        top = y + frame[b][0]
+        for layer in layers:
+            items = [v for v in layer if band_of(v) == b]
+            offset = (most[b] - len(items)) * pitch / 2  # 少ない層は帯の中で中央に寄せる
+            for k, v in enumerate(items):
+                centers[v] = top + offset + k * pitch + node_h / 2
+        y += heights[b] + BAND_GAP + spare
+    return centers
 
 
 def place_edge_labels(result: dict, gap_x: float) -> None:
@@ -287,10 +370,24 @@ def place_edge_labels(result: dict, gap_x: float) -> None:
         e["label_box"] = chosen.as_dict()
 
 
+def place_group_labels(result: dict) -> None:
+    """区画名を枠の見出し帯の左端か右端に置く。辺の線と交わらない方を選ぶ（無ければ LayoutError）。"""
+    segments = [(tuple(p), tuple(q)) for e in result["edges"] for p, q in zip(e["points"], e["points"][1:])]
+    for g in result["groups"]:
+        w = min(g["w"] - 0.16, text_width_in(g["name"], GROUP_FONT_PT) + 0.1)
+        h = GROUP_LABEL_H - 0.04
+        for x in (g["x"] + 0.08, g["x"] + g["w"] - 0.08 - w):
+            box = Box(x, g["y"] + 0.02, w, h)
+            if not any(segment_hits_box(p, q, box) for p, q in segments):
+                g["label_box"] = box.as_dict()
+                break
+        else:
+            raise LayoutError(f"区画名「{g['name']}」を線と重ならずに置けません")
+
+
 def group_label_boxes(result: dict) -> list[Box]:
-    """区画名の文字が占める領域（区画枠の左上の見出し帯）。"""
-    return [Box(g["x"] + 0.08, g["y"] + 0.02, min(g["w"] - 0.16, text_width_in(g["name"], GROUP_FONT_PT) + 0.1), GROUP_LABEL_H - 0.04)
-            for g in result["groups"]]
+    """区画名の文字が占める領域（place_group_labels が決めた見出し帯の位置）。"""
+    return [Box(**g["label_box"]) for g in result["groups"] if "label_box" in g]
 
 
 def segment_hits_box(p: tuple[float, float], q: tuple[float, float], box: Box, samples: int = 40) -> bool:
@@ -319,9 +416,10 @@ def check_geometry(result: dict) -> None:
                 errors.append(f"ノード {a} と {other} が重なります")
     for n in result["nodes"]:
         # ラベルは2行・説明は2行までに収まるか（ノード内の左右余白 0.08 in）
-        if text_width_in(n["label"], result["node_font_pt"]) > 2 * (n["w"] - 0.16):
+        usable = text_area_width(n["kind"], n["w"])
+        if text_width_in(n["label"], n.get("font_pt", result["node_font_pt"])) > 2 * usable:
             errors.append(f"ノード {n['id']} のラベル「{n['label']}」が箱に収まりません")
-        if n["description"] and text_width_in(n["description"], result["desc_font_pt"]) > 2 * (n["w"] - 0.16):
+        if n["description"] and text_width_in(n["description"], result["desc_font_pt"]) > 2 * usable:
             errors.append(f"ノード {n['id']} の説明「{n['description']}」が箱に収まりません")
     for g in result["groups"]:
         gb = Box(g["x"], g["y"], g["w"], g["h"])

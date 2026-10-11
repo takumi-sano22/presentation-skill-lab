@@ -1,0 +1,56 @@
+schema_version: '0.1'
+deck_id: bench-dense-tech
+metadata:
+  title: 架空の受注データモデルと検証SQL
+  audience: データエンジニア
+  objective: テーブル関係と整合性検査の方針を共有する
+  language: ja-JP
+  classification: public
+  synthetic: true
+  content_locked: true
+slides:
+  - id: d301
+    type: cover
+    title: 受注データの関係と整合性検査を共有する
+    takeaway: 架空のデータモデルです
+  - id: d302
+    type: er
+    title: 受注は顧客と商品を参照する
+    takeaway: 受注明細が受注と商品を多対一で結ぶ
+    diagram:
+      nodes:
+        - {id: customer, label: 顧客, kind: datastore, description: 顧客ID・氏名・地域}
+        - {id: orders, label: 受注, kind: datastore, description: 受注ID・顧客ID・受注日}
+        - {id: item, label: 受注明細, kind: datastore, description: 受注ID・商品ID・数量}
+        - {id: product, label: 商品, kind: datastore, description: 商品ID・名称・単価}
+      edges:
+        - {from: orders, to: customer, label: 多対一, kind: relationship}
+        - {from: item, to: orders, label: 多対一, kind: relationship}
+        - {from: item, to: product, label: 多対一, kind: relationship}
+    notes: 'ER 図はテキスト表示（ネイティブ化は Issue #19 で検討）'
+  - id: d303
+    type: table
+    title: 整合性は3つのSQLで毎日検査する
+    takeaway: 件数がゼロでなければ取り込みを止める
+    table:
+      headers: [検査, SQL, 期待値]
+      rows:
+        - [孤立した明細, 'SELECT COUNT(*) FROM item i LEFT JOIN orders o ON i.order_id = o.order_id WHERE o.order_id IS NULL', '0件']
+        - [負の数量, 'SELECT COUNT(*) FROM item WHERE quantity <= 0', '0件']
+        - [未来の受注日, 'SELECT COUNT(*) FROM orders WHERE order_date > CURRENT_DATE', '0件']
+  - id: d304
+    type: claim
+    title: 検査が失敗したら原因を記録してから再実行する
+    takeaway: 修正前の再実行は同じ失敗を繰り返すだけになる
+    body:
+      - 失敗した検査名と件数を障害票に記録する
+      - 原因が入力データか変換処理かを切り分ける
+      - 修正後は同じ入力で再実行し、件数がゼロになることを確認する
+      - 長い説明文が折り返しても読みやすいかを確認するための文で、全角でおおよそ六十文字程度の長さにしてある
+  - id: d305
+    type: appendix
+    title: 用語
+    takeaway: 本資料での意味
+    body:
+      - 孤立した明細：参照先の受注が存在しない受注明細
+      - 整合性検査：取り込み後に行う件数ベースの確認

@@ -1,0 +1,79 @@
+schema_version: '0.1'
+deck_id: bench-architecture
+metadata:
+  title: 架空クラウド連携基盤のデータ経路
+  audience: アーキテクト・運用担当
+  objective: 境界とデータ経路の合意を取る
+  language: ja-JP
+  classification: public
+  synthetic: true
+  content_locked: true
+slides:
+  - id: b101
+    type: cover
+    title: 架空の分析基盤の境界と経路を合意する
+    takeaway: すべて架空の構成・名称です
+    body:
+      - ベンチマーク用の合成資料
+  - id: b102
+    type: claim
+    title: 取り込みと分析を別の境界に分ける
+    takeaway: 外部データは取り込み境界で検証してから分析境界へ渡す
+    body:
+      - 取り込み境界では形式と署名を検証する
+      - 分析境界では利用者の権限で行を絞り込む
+      - 監視は両方の境界に共通で置く
+  - id: b103
+    type: architecture
+    title: 取り込みから可視化まで5段で流れる
+    takeaway: 認可はクエリ実行の直前に一度だけ行う
+    diagram:
+      nodes:
+        - {id: src, label: 外部ファイル, kind: datastore, group: 取り込み境界}
+        - {id: ingest, label: 取り込みジョブ, kind: compute, group: 取り込み境界}
+        - {id: lake, label: 生データ保管, kind: datastore, group: 取り込み境界}
+        - {id: wh, label: 分析DWH, kind: datastore, group: 分析境界}
+        - {id: authz, label: 行レベル認可, kind: policy, group: 分析境界}
+        - {id: bi, label: 可視化ツール, kind: tool}
+      edges:
+        - {from: src, to: ingest, label: 受信, kind: data}
+        - {from: ingest, to: lake, label: 検証済み, kind: data}
+        - {from: lake, to: wh, label: 日次ロード, kind: data}
+        - {from: bi, to: authz, label: 権限照会, kind: control}
+        - {from: authz, to: wh, label: 絞込条件, kind: control}
+        - {from: wh, to: bi, label: 結果, kind: data}
+    source_refs:
+      - 合成データ・架空の設計例
+  - id: b104
+    type: flow
+    title: 障害時は取り込みを止めて再実行する
+    takeaway: 部分的な取り込みを分析境界に渡さない
+    diagram:
+      nodes:
+        - {id: detect, label: 異常検知, kind: tool}
+        - {id: stop, label: 取り込み停止, kind: compute}
+        - {id: fix, label: 原因の修正, kind: actor}
+        - {id: rerun, label: 再実行, kind: compute}
+      edges:
+        - {from: detect, to: stop, label: 通知, kind: control}
+        - {from: stop, to: fix, label: 依頼, kind: control}
+        - {from: fix, to: rerun, label: 承認, kind: control}
+    notes: 再実行は同じ入力ファイルで行い、結果のハッシュを比較する
+  - id: b105
+    type: comparison
+    title: 境界を分けると影響範囲を限定できる
+    takeaway: 単一境界では取り込みの不具合が分析に波及する
+    table:
+      headers: [観点, 単一境界, 二重境界]
+      rows:
+        - [不正ファイルの影響, 分析まで波及, 取り込みで停止]
+        - [権限設定の箇所, 分散, 分析境界に集約]
+        - [監査ログ, 混在, 境界ごとに分離]
+    notes: 架空の比較であり実測値ではない
+  - id: b106
+    type: appendix
+    title: 前提と未決事項
+    takeaway: 次回の設計会議で決める
+    body:
+      - 日次ロードの時刻は利用者の業務時間外とする
+      - 行レベル認可の規則の管理者は未決

@@ -110,6 +110,18 @@ class BuildCheckTests(unittest.TestCase):
         with mock.patch.object(build, "pdf_page_texts", lambda pdf, pages: ["A\nh1\nh2\nA\nB\n"]):
             self.assertEqual(build.check_content_in_pdf(content, Path("x.pdf"), 1), [])
 
+    def test_pdf_long_cell_may_wrap_but_short_value_must_match_line(self):
+        from unittest import mock
+        sql = "SELECT COUNT(*) FROM item WHERE quantity <= 0"
+        content = {"slides": [{"id": "s1", "title": "T", "takeaway": "",
+                               "table": {"headers": ["検査", "SQL"], "rows": [["負数", sql], ["件数", "1"]]}}]}
+        wrapped = "T\n検査\nSQL\n負数\nSELECT COUNT(*) FROM item\nWHERE quantity <= 0\n件数\n1\n"
+        with mock.patch.object(build, "pdf_page_texts", lambda pdf, pages: [wrapped]):
+            self.assertEqual(build.check_content_in_pdf(content, Path("x.pdf"), 1), [])
+        # 短い値「1」は「10」の行では代用できない
+        with mock.patch.object(build, "pdf_page_texts", lambda pdf, pages: [wrapped.replace("\n1\n", "\n10\n")]):
+            self.assertEqual(build.check_content_in_pdf(content, Path("x.pdf"), 1), ["s1: 「1」"])
+
     def test_short_value_is_not_matched_by_substring(self):
         # 「1」が欠落しても「10」に部分一致して PASS してはならない
         slide = {"id": "s1", "title": "表", "takeaway": "",

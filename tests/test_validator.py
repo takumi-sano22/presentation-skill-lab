@@ -35,6 +35,17 @@ class ValidatorTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("6 スライド", result.stdout)
 
+    def test_inline_yaml_comment_in_text_is_warned(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "content.yaml"
+            path.write_text("notes: 詳細は Issue #19 で検討\nquoted: '詳細は Issue #19'\nlayout: cover  # 設定の説明\n# 行コメント\n",
+                            encoding="utf-8")
+            sys.path.insert(0, str(ROOT / "scripts"))
+            import validate
+            warnings = validate.yaml_comment_warnings(path)
+            self.assertEqual(len([w for w in warnings if ":1:" in w]), 1)
+            self.assertFalse(any(":2:" in w or ":4:" in w for w in warnings))
+
     def test_unknown_edge_fails(self):
         def mutate(c, _):
             c["slides"][2]["diagram"]["edges"][0]["to"] = "missing_node"

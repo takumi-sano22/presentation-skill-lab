@@ -1,0 +1,63 @@
+schema_version: '0.1'
+deck_id: bench-table-chart
+metadata:
+  title: 架空の4方式の比較評価
+  audience: 意思決定者・アーキテクト
+  objective: 方式の選定理由を数値と条件で示す
+  language: ja-JP
+  classification: public
+  synthetic: true
+  content_locked: true
+slides:
+  - id: c201
+    type: cover
+    title: 4方式の比較で選定理由を示す
+    takeaway: 数値はすべて合成データです
+  - id: c202
+    type: table
+    title: 方式Cが費用と遅延の釣り合いが最もよい
+    takeaway: 方式Aは最速だが月額費用が2倍以上になる
+    table:
+      headers: [方式, 月額費用, 応答遅延, 運用工数, 前提条件]
+      rows:
+        - [方式A, '84万円', '120ms', '0.5人月', 常時稼働]
+        - [方式B, '41万円', '480ms', '1.2人月', 夜間停止]
+        - [方式C, '38万円', '210ms', '0.8人月', 自動縮退]
+        - [方式D, '29万円', '950ms', '1.5人月', 手動起動]
+      unit: 費用は税抜・月額
+      period: 2026年度想定
+    notes: 合成データ。応答遅延は p95 の想定値
+  - id: c203
+    type: chart
+    title: 月額費用は方式Aが突出して高い
+    takeaway: 方式B〜Dは30〜40万円台に収まる
+    chart:
+      type: bar
+      categories: [方式A, 方式B, 方式C, 方式D]
+      series:
+        - name: 月額費用
+          values: [84, 41, 38, 29]
+      unit: 万円
+    source_refs:
+      - 合成データ（表 c202 と同じ値）
+  - id: c204
+    type: chart
+    title: 応答遅延は方式Dだけが目標の500msを超える
+    takeaway: 目標を満たすのは方式A〜C
+    chart:
+      type: line
+      categories: [方式A, 方式B, 方式C, 方式D]
+      series:
+        - name: 応答遅延 p95
+          values: [120, 480, 210, 950]
+      unit: ms
+    notes: 目標値 500ms は架空の要件
+  - id: c205
+    type: comparison
+    title: 条件つきで方式Cを推奨する
+    takeaway: 自動縮退が要件を満たすかを検証してから確定する
+    table:
+      headers: [条件, 満たす場合, 満たさない場合]
+      rows:
+        - [自動縮退で遅延目標を守れる, 方式Cを採用, 方式Aを検討]
+        - [運用工数1人月以内, 方式Cを採用, 方式Bは不可]

@@ -1,0 +1,19 @@
+schema_version: '0.1'
+deck_id: bench-dense-tech
+theme:
+  name: technical-light
+  fonts:
+    heading: Noto Sans JP
+    body: Noto Sans JP
+  colors:
+    background: '#F8FAFC'
+    foreground: '#14213D'
+    accent: '#1876A3'
+    muted: '#627286'
+overrides:
+  d301:
+    layout: cover
+  d302:
+    layout: er
+  d303:
+    layout: table

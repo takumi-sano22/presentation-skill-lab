@@ -100,8 +100,10 @@ function drawDiagram(pptx, pSlide, lay, preset) {
       x: g.x, y: g.y, w: g.w, h: g.h, objectName: `group:${g.name}`,
       fill: { color: preset.surface }, line: { color: preset.line, width: 1, dashType: 'dash' },
     });
+    // 区画名は配置計算が線と交わらない側（左端／右端）に決めた位置へ置く
+    const lb = g.label_box;
     pSlide.addText(g.name, {
-      x: g.x + 0.08, y: g.y + 0.02, w: g.w - 0.16, h: 0.22, objectName: `group-label:${g.name}`,
+      x: lb.x, y: lb.y, w: lb.w, h: lb.h, objectName: `group-label:${g.name}`,
       fontFace: font, fontSize: lay.group_font_pt, bold: true, color: preset.text_muted, valign: 'middle', margin: 0,
     });
   }
@@ -128,7 +130,7 @@ function drawDiagram(pptx, pSlide, lay, preset) {
     }
   }
   for (const n of lay.nodes) {
-    const runs = [{ text: n.label, options: { fontSize: lay.node_font_pt, bold: true, color: preset.text,
+    const runs = [{ text: n.label, options: { fontSize: n.font_pt || lay.node_font_pt, bold: true, color: preset.text,
       breakLine: Boolean(n.description) } }];
     if (n.description) runs.push({ text: n.description, options: { fontSize: lay.desc_font_pt, color: preset.text_muted } });
     pSlide.addText(runs, {

@@ -22,6 +22,11 @@ jobs:
           done
       - name: Check image assets (rights / provenance / integrity)
         run: python scripts/assets.py examples/*/
+      - name: Validate benchmark decks
+        run: |
+          for d in bench-architecture bench-table-chart bench-dense-tech; do
+            python scripts/validate.py --content examples/$d/content.yaml --design examples/$d/design.yaml --public-repo-check
+          done
       - name: Validate asset example
         run: >-
           python scripts/validate.py
@@ -67,6 +72,15 @@ jobs:
           --content examples/asset-illustration/content.yaml
           --design examples/asset-illustration/design.yaml
           --out build/sample-asset-illustration
+      - name: Visual benchmark (3 decks x initial / theme / text increase)
+        run: scripts/dev.sh run python3 scripts/benchmark.py
+      - name: Upload benchmark gallery
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark
+          path: build/benchmark
+          retention-days: 14
       - name: Upload sample decks
         uses: actions/upload-artifact@v4
         with:

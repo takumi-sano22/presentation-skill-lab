@@ -63,7 +63,11 @@ class QaUnitTests(unittest.TestCase):
 
     def test_text_overflow_uses_insets_and_respects_autofit(self):
         long = "長い本文" * 20
-        self.assertIn("text-overflow", checks(run_slide(sp("a", 1, 1, 2, 0.4, [long]))))
+        # あふれが下の文字図形と重なれば FAIL、空き領域に収まるだけなら警告
+        self.assertIn("text-overflow", checks(run_slide(sp("a", 1, 1, 2, 0.4, [long]) + sp("below", 1, 1.6, 2, 0.4, ["下の文字"]))))
+        self.assertIn("text-overflow", checks(run_slide(sp("a", 1, 1, 2, 0.4, [long])), "warning"))
+        self.assertNotIn("text-overflow", checks(run_slide(sp("a", 1, 1, 2, 0.4, [long]))))
+        self.assertIn("text-overflow", checks(run_slide(sp("a", 1, 4.5, 2, 0.4, [long]))))  # スライド下端に達する
         self.assertNotIn("text-overflow", checks(run_slide(sp("a", 1, 1, 2, 0.4, [long], autofit=True))))
         # 内側余白 0 の小さなラベル（図の辺ラベル）は1行で収まる
         self.assertNotIn("text-overflow", checks(run_slide(sp("l", 1, 1, 0.62, 0.21, ["認可照会"], sz=900, ins=(0, 0, 0, 0)))))
