@@ -62,8 +62,18 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual(s004["table"]["rows"][2], ["故障時の既定動作", "拒否", "実装次第"])
         self.assertEqual(s004["footer"], self.content["slides"][3]["notes"])
 
-    def test_diagram_fallback_keeps_all_labels(self):
+    def test_architecture_diagram_is_laid_out_natively(self):
         s003 = self.convert()["slides"][2]
+        lay = s003["psl"]["diagram_layout"]
+        self.assertNotIn("fallback", s003["psl"])
+        self.assertNotIn("bullets", s003)  # 図をテキスト行にしない
+        self.assertEqual([n["id"] for n in lay["nodes"]], ["user", "policy", "agent", "tool", "db"])
+        self.assertEqual(len(lay["edges"]), 5)
+
+    def test_er_diagram_falls_back_to_text_explicitly(self):
+        def to_er(_, d):
+            d["overrides"]["s003"] = {"layout": "er"}
+        s003 = self.convert(to_er)["slides"][2]
         self.assertEqual(s003["psl"]["fallback"], "diagram-as-text")
         self.assertIn("利用者 → オーケストレータ（質問）", s003["bullets"])
         self.assertIn("Query Tool → 分析DB（架空）（フィルタ付き取得）", s003["bullets"])
@@ -74,7 +84,9 @@ class AdapterTests(unittest.TestCase):
             node["group"] = "制御"
             node["description"] = "共通ポリシーで判定"
         outline = self.convert(enrich)
-        self.assertIn("統合認可［制御］：共通ポリシーで判定", outline["slides"][2]["bullets"])
+        lay = outline["slides"][2]["psl"]["diagram_layout"]
+        self.assertEqual(lay["nodes"][1]["description"], "共通ポリシーで判定")
+        self.assertEqual([g["name"] for g in lay["groups"]], ["制御"])
         items = adapter.outline_semantic_items(outline)
         self.assertIn(("s003", "diagram.node.kind", "policy:policy"), items)
         self.assertIn(("s003", "diagram.edge", "user->agent:質問:data"), items)
@@ -83,6 +95,18 @@ class AdapterTests(unittest.TestCase):
         del outline["slides"][2]["psl"]["diagram"]["nodes"][1]["kind"]
         with self.assertRaises(adapter.ContentMismatch):
             adapter.verify_roundtrip(self.content, outline)
+
+    def test_layout_tampering_is_detected(self):
+        outline = self.convert()
+        outline["slides"][2]["psl"]["diagram_layout"]["edges"].pop()
+        with self.assertRaises(adapter.ContentMismatch):
+            adapter.verify_roundtrip(self.content, outline)
+
+    def test_body_on_diagram_slide_fails(self):
+        def add_body(c, _):
+            c["slides"][2]["body"] = ["補足"]
+        with self.assertRaises(adapter.UnsupportedContent):
+            self.convert(add_body)
 
     def test_tampered_outline_fails(self):
         cases = {

@@ -8,7 +8,7 @@
 | jinba-consulting-pptx-skill | https://github.com/carnot-tech/jinba-consulting-pptx-skill | MIT | **規約の要旨を翻案済み**（下記）。コード・テンプレート・ロゴは不使用 |
 | minorun-marp-skill | https://github.com/minorun365/minorun-marp-skill | Apache-2.0 | 考え方を参考。初期はコードのコピーなし。画像素材は別権利の可能性あり |
 | basicslide | https://github.com/khaym/basicslide | MIT | 将来の独創的デザイン評価を参考。コード移植は未定 |
-| Dagre | https://github.com/dagrejs/dagre | MIT | 将来のノード配置用の依存候補 |
+| Dagre | https://github.com/dagrejs/dagre | MIT | 不採用（#6 で新規依存を増やさず、自作の簡易 Sugiyama 配置 `scripts/diagram.py` を実装。Dagre のコードは参照・コピーしていない） |
 
 **注意:** このリポジトリの `LICENSE` は本プロジェクトが作成したコードに適用。外部依存・フォント・画像など個別権利を再許諾するものではない。特に他社ブランド資産・第三者イラスト・有償フォントは自動的に MIT にならない。
 

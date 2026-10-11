@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import copy
+import html
 import json
 import os
 import re
@@ -95,6 +96,26 @@ class RenderContractTests(unittest.TestCase):
         axes = "".join(re.findall(r"<c:(?:catAx|valAx)>.*?</c:(?:catAx|valAx)>", chart, re.S))
         self.assertIn('srgbClr val="627286"', axes)
         self.assertNotIn('srgbClr val="000000"', axes)
+
+    def test_diagram_is_editable_native_shapes(self):
+        pptx = self.render(self.outline)
+        with zipfile.ZipFile(pptx) as z:
+            xml = z.read("ppt/slides/slide3.xml").decode("utf-8")
+        # 画像として埋め込まない
+        self.assertNotIn("<p:pic>", xml)
+        shapes = {html.unescape(m.group(1)): m.group(0)
+                  for m in re.finditer(r'<p:sp>.*?name="([^"]+)".*?</p:sp>', xml, re.S)}
+        for node in self.content["slides"][2]["diagram"]["nodes"]:
+            block = shapes[f"node:{node['id']}"]
+            # ノードは文字を持つ図形（PowerPoint で文字・形・位置を編集できる）
+            self.assertIn(node["label"], re.findall(r"<a:t[^>]*>([^<]*)</a:t>", block))
+            self.assertIn("<a:prstGeom", block)
+        edges = [n for n in shapes if n.startswith("edge:")]
+        self.assertEqual({n.split("#")[0] for n in edges},
+                         {f"edge:{e['from']}->{e['to']}" for e in self.content["slides"][2]["diagram"]["edges"]})
+        # 制御の辺は破線、データの辺は実線（線種で意味を示す）
+        self.assertIn('prstDash val="dash"', shapes["edge:agent->policy#0"])
+        self.assertNotIn('prstDash val="dash"', shapes["edge:user->agent#0"])
 
     def test_dark_theme_uses_dark_surfaces(self):
         _, dark = adapter.load_and_validate(ROOT / "examples/technical-architecture/content.yaml",
