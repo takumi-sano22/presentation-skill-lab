@@ -21,11 +21,14 @@ CONTENT = ROOT / "examples/technical-architecture/content.yaml"
 DESIGN = ROOT / "examples/technical-architecture/design.yaml"
 
 
-def fake_pptx(path: Path, slides: list[list[str]], chart_values: list[str] | None = None) -> Path:
-    """テキストランだけを持つ最小の PPTX 風 zip（検査関数のテスト用）。"""
+def fake_pptx(path: Path, slides: list[list], chart_values: list[str] | None = None) -> Path:
+    """段落（文字列、または複数ランのリスト）だけを持つ最小の PPTX 風 zip（検査関数のテスト用）。"""
+    def para(p):
+        runs = p if isinstance(p, list) else [p]
+        return "<a:p>" + "".join(f"<a:r><a:t>{r}</a:t></a:r>" for r in runs) + "</a:p>"
     with zipfile.ZipFile(path, "w") as z:
-        for i, runs in enumerate(slides, start=1):
-            z.writestr(f"ppt/slides/slide{i}.xml", "<p:sld>" + "".join(f"<a:t>{r}</a:t>" for r in runs) + "</p:sld>")
+        for i, paras in enumerate(slides, start=1):
+            z.writestr(f"ppt/slides/slide{i}.xml", "<p:sld>" + "".join(para(p) for p in paras) + "</p:sld>")
         if chart_values is not None:
             z.writestr("ppt/slides/_rels/slide1.xml.rels", '<Relationships><Relationship Target="/ppt/charts/chart1.xml"/></Relationships>')
             z.writestr("ppt/charts/chart1.xml", "<c:chart>" + "".join(f"<c:v>{v}</c:v>" for v in chart_values) + "</c:chart>")
@@ -55,7 +58,7 @@ class BuildCheckTests(unittest.TestCase):
     def test_text_split_across_runs_is_accepted(self):
         # 折返しや装飾でランが分割されても、連結した文字列で照合する
         slide = {"id": "s1", "title": "長いタイトル", "takeaway": ""}
-        pptx = fake_pptx(self.dir / "b.pptx", [["長い", "タイ", "トル"]])
+        pptx = fake_pptx(self.dir / "b.pptx", [[["長い", "タイ", "トル"]]])
         self.assertEqual(build.check_content_in_pptx(self.one_slide(slide), pptx), [])
 
     def test_chart_values_are_read_from_chart_part(self):
@@ -72,6 +75,26 @@ class BuildCheckTests(unittest.TestCase):
                  "chart": {"type": "bar", "unit": "件", "categories": ["A"], "series": [{"name": "系列", "values": [1]}]}}
         pptx = fake_pptx(self.dir / "e.pptx", [["検査件数"]], ["系列", "A", "1"])
         self.assertIn("s1: 「単位: 件」", build.check_content_in_pptx(self.one_slide(slide), pptx))
+
+    def test_short_value_is_not_matched_by_substring(self):
+        # 「1」が欠落しても「10」に部分一致して PASS してはならない
+        slide = {"id": "s1", "title": "表", "takeaway": "",
+                 "table": {"headers": ["項目", "値"], "rows": [["A", "1"], ["B", "10"]]}}
+        ng = fake_pptx(self.dir / "g.pptx", [["表", "項目", "値", "A", "B", "10"]])
+        self.assertEqual(build.check_content_in_pptx(self.one_slide(slide), ng), ["s1: 「1」"])
+        ok = fake_pptx(self.dir / "h.pptx", [["表", "項目", "値", "A", "1", "B", "10"]])
+        self.assertEqual(build.check_content_in_pptx(self.one_slide(slide), ok), [])
+
+    def test_repeated_items_require_each_occurrence(self):
+        slide = {"id": "s1", "title": "比較", "takeaway": "", "body": ["同じ文", "同じ文"],
+                 "table": {"headers": ["観点", "結果"], "rows": [["X", "可"], ["Y", "可"]]}}
+        ng = fake_pptx(self.dir / "i.pptx", [["比較", "同じ文", "観点", "結果", "X", "可", "Y"]])
+        self.assertEqual(sorted(build.check_content_in_pptx(self.one_slide(slide), ng)), ["s1: 「可」", "s1: 「同じ文」"])
+
+    def test_text_joined_with_label_is_accepted(self):
+        slide = {"id": "s1", "title": "T", "takeaway": "", "source_refs": ["出典A", "出典B"]}
+        pptx = fake_pptx(self.dir / "j.pptx", [["T", "出典: 出典A; 出典B"]])
+        self.assertEqual(build.check_content_in_pptx(self.one_slide(slide), pptx), [])
 
     def test_slide_count_mismatch(self):
         pptx = fake_pptx(self.dir / "f.pptx", [["x"]])

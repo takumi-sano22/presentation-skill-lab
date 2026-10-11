@@ -126,96 +126,131 @@ def normalize(text: str) -> str:
     return re.sub(r"\s+", "", unicodedata.normalize("NFKC", text))
 
 
-def pptx_slide_texts(pptx: Path) -> list[str]:
+def slide_part_names(z: zipfile.ZipFile) -> list[str]:
+    return sorted((n for n in z.namelist() if re.fullmatch(r"ppt/slides/slide\d+\.xml", n)),
+                  key=lambda n: int(re.findall(r"\d+", n)[0]))
+
+
+def pptx_units(pptx: Path) -> list[list[str]]:
+    """スライドごとの照合単位: 段落（a:p 内のランを連結）と、参照グラフの値（c:v 1要素ずつ）。
+
+    表セルは段落、グラフのカテゴリ・系列名・値は c:v として独立した単位になる。
+    """
     with zipfile.ZipFile(pptx) as z:
-        names = sorted((n for n in z.namelist() if re.fullmatch(r"ppt/slides/slide\d+\.xml", n)),
-                       key=lambda n: int(re.findall(r"\d+", n)[0]))
-        texts = []
-        for n in names:
+        units = []
+        for n in slide_part_names(z):
             xml = z.read(n).decode("utf-8")
-            # グラフは別パーツ（chartN.xml）なので、スライドが参照するグラフのテキストも含める
-            rels = z.read(n.replace("slides/", "slides/_rels/") + ".rels").decode("utf-8") if \
-                n.replace("slides/", "slides/_rels/") + ".rels" in z.namelist() else ""
+            paras = ["".join(re.findall(r"<a:t>([^<]*)</a:t>", p)) for p in re.findall(r"<a:p>.*?</a:p>|<a:p .*?</a:p>", xml, re.S)]
+            rels_name = n.replace("slides/", "slides/_rels/") + ".rels"
+            rels = z.read(rels_name).decode("utf-8") if rels_name in z.namelist() else ""
+            values = []
             # 上流は絶対パス（/ppt/charts/）で参照するため、相対・絶対の両方を受ける
             for target in re.findall(r'Target="(?:\.\./|/ppt/)charts/(chart\d+\.xml)"', rels):
-                xml += z.read(f"ppt/charts/{target}").decode("utf-8")
-            texts.append(html.unescape("".join(re.findall(r"<(?:a:t|c:v)>([^<]*)</(?:a:t|c:v)>", xml))))
-    return texts
+                values += re.findall(r"<c:v>([^<]*)</c:v>", z.read(f"ppt/charts/{target}").decode("utf-8"))
+            units.append([html.unescape(u) for u in paras + values if u])
+    return units
 
 
-def expected_texts(slide: dict) -> list[str]:
-    """スライド上に現れるべき内容文字列（adapter の意味項目のうち可視のもの）。"""
-    items = [slide["title"], slide.get("takeaway", ""), *slide.get("body", []), *slide.get("source_refs", [])]
-    if slide.get("notes"):
-        items.append(slide["notes"])
+def expected_items(slide: dict) -> tuple[list[str], list[str]]:
+    """スライド上に現れるべき内容を (完全一致で照合する原子値, 部分照合する文章) に分ける。
+
+    原子値: 表ヘッダ・セル、グラフのカテゴリ・系列名・値（短い値の部分一致で見逃さないため完全一致）。
+    文章: タイトル・要点・本文・出典・注記・単位表示・図のテキスト行（折返しや出典ラベルとの連結を許す）。
+    """
+    atoms: list[str] = []
+    texts = [slide["title"], slide.get("takeaway", ""), *slide.get("body", []), *slide.get("source_refs", []),
+             slide.get("notes", "")]
     if t := slide.get("table"):
-        items += t["headers"] + [c for row in t["rows"] for c in row]
+        atoms += t["headers"] + [c for row in t["rows"] for c in row]
         # 単位・期間は部分一致で誤検出しないよう、表示文字列（caption）で照合する
         if t.get("unit") or t.get("period"):
-            items.append(adapter.table_caption(t.get("unit"), t.get("period")))
+            texts.append(adapter.table_caption(t.get("unit"), t.get("period")))
     if ch := slide.get("chart"):
-        items += ch["categories"] + [se["name"] for se in ch["series"]] + [adapter.chart_unit_title(ch["unit"])]
-        items += [adapter.format_number(v) for se in ch["series"] for v in se["values"]]
+        atoms += ch["categories"] + [se["name"] for se in ch["series"]]
+        atoms += [adapter.format_number(v) for se in ch["series"] for v in se["values"]]
+        texts.append(adapter.chart_unit_title(ch["unit"]))
     if d := slide.get("diagram"):
-        items += [n["label"] for n in d["nodes"]] + [e["label"] for e in d.get("edges", []) if e.get("label")]
-    return [i for i in items if i]
+        # 図はテキスト行フォールバック（#6 まで）。ノード・矢印ラベルは各行に含まれる
+        texts += adapter.diagram_lines(d)
+    return [a for a in atoms if a], [t for t in texts if t]
 
 
-def check_content_in_pptx(content: dict, pptx: Path) -> list[str]:
-    """PPTX の各スライドに内容文字列が欠落なく現れるかを検査する（上流の切り詰め・欠落の検出）。"""
-    texts = pptx_slide_texts(pptx)
-    if len(texts) != len(content["slides"]):
-        return [f"PPTX のスライド数 {len(texts)} が content の {len(content['slides'])} と一致しません"]
+def match_items(atoms: list[str], texts: list[str], units: list[str]) -> list[str]:
+    """消費型の多重集合照合。見つからなかった項目を返す。
+
+    - 原子値は、未使用の単位と正規化後に完全一致したときだけ一致とし、その単位を使い切る（「1」が「10」に一致しない）。
+    - 文章は長い順に、単位内の一致部分を1回分だけ消費する（同じ文字列の複数出現も回数分要求する）。
+    """
+    remaining = [normalize(u) for u in units]
     missing = []
-    for slide, text in zip(content["slides"], texts):
-        norm = normalize(text)
-        missing += [f"{slide['id']}: 「{item}」" for item in expected_texts(slide) if normalize(item) not in norm]
+    for a in atoms:
+        n = normalize(a)
+        if n in remaining:
+            remaining[remaining.index(n)] = ""
+        else:
+            missing.append(a)
+    for t in sorted(texts, key=lambda x: -len(normalize(x))):
+        n = normalize(t)
+        hit = next((i for i, r in enumerate(remaining) if r == n), None)
+        if hit is None:
+            hit = next((i for i, r in enumerate(remaining) if n in r), None)
+        if hit is None:
+            missing.append(t)
+        else:
+            remaining[hit] = remaining[hit].replace(n, "", 1)
     return missing
 
 
-def pptx_text_runs(pptx: Path) -> list[list[str]]:
-    """スライドごとのテキストランの一覧（グラフ部品は除く）。"""
-    with zipfile.ZipFile(pptx) as z:
-        names = sorted((n for n in z.namelist() if re.fullmatch(r"ppt/slides/slide\d+\.xml", n)),
-                       key=lambda n: int(re.findall(r"\d+", n)[0]))
-        return [[html.unescape(t) for t in re.findall(r"<a:t>([^<]*)</a:t>", z.read(n).decode("utf-8"))] for n in names]
+def check_content_in_pptx(content: dict, pptx: Path) -> list[str]:
+    """PPTX の各スライドに内容が欠落なく（出現回数も含めて）現れるかを検査する（上流の切り詰め・欠落の検出）。"""
+    units = pptx_units(pptx)
+    if len(units) != len(content["slides"]):
+        return [f"PPTX のスライド数 {len(units)} が content の {len(content['slides'])} と一致しません"]
+    missing = []
+    for slide, slide_units in zip(content["slides"], units):
+        missing += [f"{slide['id']}: 「{m}」" for m in match_items(*expected_items(slide), slide_units)]
+    return missing
 
 
 def find_non_content_text(content: dict, outline: dict, pptx: Path) -> dict[str, list[str]]:
     """content に由来しないテキスト（レンダラの装飾ラベル・プレースホルダ等）をスライド別に列挙する。
 
-    内容の改変ではないが、未承認の文言追加として可視化する（除去は日本語テーマ #5 で扱う）。
+    内容の改変ではないが、未承認の文言追加として可視化する（警告。FAIL にはしない）。
     """
     found: dict[str, list[str]] = {}
-    for slide, o_slide, runs in zip(content["slides"], outline["slides"], pptx_text_runs(pptx)):
-        allowed = normalize("".join(expected_texts(slide) + o_slide.get("bullets", []) + [o_slide.get("footer", "")]))
-        # 出典ラベル（adapter が deck_style.footer_source_label で指定）は装飾ではなく既知の表示枠
-        label = normalize(outline["deck_style"].get("footer_source_label", "") + ":")
-        extra = [r for r in runs if (n := normalize(r).removeprefix(label)) and n not in allowed]
-        # 出典ラベル等の短い定型も含めてそのまま記録する
+    # 出典ラベル（adapter が deck_style.footer_source_label で指定）は装飾ではなく既知の表示枠
+    label = normalize(outline["deck_style"].get("footer_source_label", "") + ":")
+    for slide, o_slide, units in zip(content["slides"], outline["slides"], pptx_units(pptx)):
+        atoms, texts = expected_items(slide)
+        allowed = normalize("".join(atoms + texts + o_slide.get("bullets", []) + [o_slide.get("footer", "")]))
+        extra = [u for u in units if (n := normalize(u).removeprefix(label)) and n not in allowed]
         if extra:
             found[slide["id"]] = sorted(set(extra))
     return found
 
 
 def pdf_page_texts(pdf: Path, pages: int) -> list[str]:
-    return [run(["pdftotext", "-f", str(i), "-l", str(i), "-layout", str(pdf), "-"]) for i in range(1, pages + 1)]
+    # -layout は段組みの行を横に混ぜるため、テキストボックス単位の読み順になる既定モードで抽出する
+    return [run(["pdftotext", "-f", str(i), "-l", str(i), str(pdf), "-"]) for i in range(1, pages + 1)]
 
 
 def check_content_in_pdf(content: dict, pdf: Path, pages: int) -> list[str]:
-    """PDF の各ページから抽出したテキストに内容文字列が現れるか（LibreOffice 変換での欠落・文字化けの検出）。
+    """PDF の各ページから抽出したテキストに内容が現れるか（LibreOffice 変換での欠落・文字化けの検出）。
 
-    グラフの軸ラベル・数値は描画方式によって抽出順が崩れるため、ここではグラフ以外の文字列を対象にする。
+    表セル等の原子値は行単位の完全一致、文章はページ全体（折返しを無視）からの消費型照合。
+    グラフの軸ラベル・数値は描画方式で抽出が不安定なため対象外（PPTX 側のグラフ XML で検査済み）。
     """
     missing = []
     for slide, text in zip(content["slides"], pdf_page_texts(pdf, pages)):
-        norm = normalize(text)
-        chart_items = set()
+        atoms, texts = expected_items(slide)
         if ch := slide.get("chart"):
-            chart_items = set(ch["categories"]) | {se["name"] for se in ch["series"]}
-            chart_items |= {adapter.format_number(v) for se in ch["series"] for v in se["values"]}
-        missing += [f"{slide['id']}: 「{item}」" for item in expected_texts(slide)
-                    if item not in chart_items and normalize(item) not in norm]
+            chart_atoms = set(ch["categories"]) | {se["name"] for se in ch["series"]}
+            chart_atoms |= {adapter.format_number(v) for se in ch["series"] for v in se["values"]}
+            atoms = [a for a in atoms if a not in chart_atoms]
+        lines = [ln for ln in text.splitlines() if ln.strip()]
+        # 文章はページ全体を1単位として消費し、原子値は残りの行と完全一致させる
+        missing += [f"{slide['id']}: 「{m}」" for m in match_items([], texts, ["".join(lines)])]
+        missing += [f"{slide['id']}: 「{m}」" for m in match_items(atoms, [], lines)]
     return missing
 
 
