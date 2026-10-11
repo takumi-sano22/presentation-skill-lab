@@ -129,6 +129,13 @@ class QaExceptionTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             qa.load_exceptions(self.deck)
 
+    def test_malformed_exception_file_is_reported(self):
+        for text in ("exceptions: foo\n", "- a\n- b\n", "exceptions:\n  - just-a-string\n", "exceptions: [unclosed\n"):
+            with self.subTest(text=text):
+                self.write(text)
+                with self.assertRaises(ValueError):
+                    qa.load_exceptions(self.deck)
+
     def test_exception_excuses_only_matching_finding_and_reports_stale(self):
         self.write("exceptions:\n"
                    "  - {slide_id: s1, check: min-font, target: small, reason: 法定表記のため 8pt を許容}\n"

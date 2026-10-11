@@ -134,9 +134,16 @@ def load_exceptions(deck_dir: Path) -> list[dict]:
     path = deck_dir / EXCEPTIONS_FILE
     if not path.is_file():
         return []
-    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError as exc:
+        raise ValueError(f"{EXCEPTIONS_FILE}: YAML として読めません（{exc}）") from exc
+    if not isinstance(data, dict) or not isinstance(data.get("exceptions", []), list):
+        raise ValueError(f"{EXCEPTIONS_FILE}: ルートは exceptions のリストを持つオブジェクトにしてください")
     items = data.get("exceptions", [])
     for i, e in enumerate(items):
+        if not isinstance(e, dict):
+            raise ValueError(f"{EXCEPTIONS_FILE}: exceptions[{i}] はオブジェクトにしてください")
         missing = [k for k in ("slide_id", "check", "target", "reason") if not str(e.get(k, "")).strip()]
         if missing:
             raise ValueError(f"{EXCEPTIONS_FILE}: exceptions[{i}] に {missing} がありません（Slide ID と理由は必須）")
