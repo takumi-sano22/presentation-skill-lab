@@ -142,6 +142,14 @@ jobs:
           assert "<p:pic>" not in xml and xml.count('name="er-attr:') == 16, "native ER shapes"
           print("PASS ER: e402 native (16 attribute rows as text shapes, no picture), e403 SVG exception recorded:", fb["reason"][:60])
           PY
+      - name: Gate 4 Windows PowerPoint verification kit (#10)
+        run: scripts/dev.sh run python3 scripts/gate4_kit.py
+      - name: Upload Gate 4 Windows verification kit
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate4-windows-kit
+          path: build/gate4-kit
+          retention-days: 90
       - name: Build asset illustration example
         run: >-
           scripts/build
