@@ -62,12 +62,14 @@ def png_info(data: bytes) -> tuple[int, int, bool, str]:
 def jpeg_info(data: bytes) -> tuple[int, int, bool, str]:
     """(幅, 高さ, False, 色) — SOF マーカーから寸法と成分数（4 = CMYK）を読む。"""
     i = 2
-    while i < len(data):
+    while i + 4 <= len(data):
         if data[i] != 0xFF:
             i += 1
             continue
         marker, length = data[i + 1], struct.unpack(">H", data[i + 2:i + 4])[0]
         if 0xC0 <= marker <= 0xCF and marker not in (0xC4, 0xC8, 0xCC):
+            if i + 10 > len(data):
+                break  # 途中で切れた JPEG
             height, width, comps = struct.unpack(">HHB", data[i + 5:i + 10])
             return width, height, False, "cmyk" if comps == 4 else "rgb"
         i += 2 + length
@@ -98,7 +100,9 @@ def check_svg(root: ET.Element, entry: dict) -> list[str]:
             if key.endswith("href") and not value.startswith("#"):
                 errors.append(f"SVG に外部参照があります: {value[:60]}")
         style = (el.text or "") if tag == "style" else el.get("style", "")
-        if re.search(r"url\(\s*['\"]?(?!#)", style) or "@import" in style:
+        # url(...) の参照先を引用符を除いて取り出し、同一文書内（#id）以外を外部参照とする
+        targets = [t.strip().strip("'\"").strip() for t in re.findall(r"url\(([^)]*)\)", style)]
+        if any(not t.startswith("#") for t in targets) or "@import" in style:
             errors.append("SVG のスタイルに外部参照があります")
     return errors
 
@@ -144,7 +148,7 @@ def check_entry(deck_dir: Path, entry: dict) -> list[str]:
             width, height, alpha, color = png_info(data)
         else:
             width, height, alpha, color = jpeg_info(data)
-    except (AssetError, ET.ParseError, ValueError, struct.error) as exc:
+    except (AssetError, ET.ParseError, ValueError, struct.error, IndexError) as exc:
         return errors + [f"{tag}: 画像を解析できません（{exc}）"]
     if (width, height) != (entry["width"], entry["height"]):
         errors.append(f"{tag}: 寸法 {width}x{height} が manifest の {entry['width']}x{entry['height']} と一致しません")
