@@ -71,9 +71,10 @@ class ValidatorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             path = Path(d) / "content.yaml"
             path.write_text("notes: 詳細は Issue #19 で検討\ntitle: 本文の文言  # 作成者メモ\nquoted: '詳細は Issue #19'\n"
-                            "layout: cover  # 設定の説明\n", encoding="utf-8")
+                            "layout: cover  # 設定の説明\ntakeaway: Issue #19\n", encoding="utf-8")
             strict, loose = validate.yaml_comment_issues(path)
-            self.assertEqual([":1:" in w for w in strict], [True])
+            # 一語の値（takeaway: Issue #19）も「#」直後が空白でなければ strict（Codex 指摘）
+            self.assertEqual([w.split(":")[1] for w in strict], ["1", "5"])
             self.assertEqual([":2:" in w for w in loose], [True])
 
     def test_unknown_edge_fails(self):

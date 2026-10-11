@@ -99,12 +99,15 @@ def yaml_comment_issues(path: Path) -> tuple[list[str], list[str]]:
         if not value or value[0] in "'\"|>#[{" or " #" not in value:
             continue
         before, after = value.split(" #", 1)
-        # 識別子だけの設定値（例: layout: cover  # 説明）は意図したコメントとみなし、文言（空白や非 ASCII を含む）だけ対象にする
-        # （\w は和文も含むため ASCII に限定する。「本文の文言  # メモ」を識別子とみなさない）
-        if re.fullmatch(r"[A-Za-z0-9_.-]+", before.strip()):
-            continue
         message = f"{path.name}:{lineno}: 「 #」以降が YAML のコメントとして捨てられます。文言なら引用符で囲んでください: {line.strip()[:60]}"
-        (loose if after[:1].isspace() or not after else strict).append(message)
+        if after and not after[0].isspace():
+            # 「#」の直後が空白でない（Issue #19、#タグ）: 値が一語でも文言の欠落とみなす（takeaway: Issue #19 など）
+            strict.append(message)
+            continue
+        # 「 # 」で始まるコメント: 識別子だけの設定値（例: layout: cover  # 説明）は意図したコメントとみなし、
+        # 文言（空白や非 ASCII を含む）だけ警告する。\w は和文も含むため ASCII に限定する
+        if not re.fullmatch(r"[A-Za-z0-9_.-]+", before.strip()):
+            loose.append(message)
     return strict, loose
 
 
