@@ -134,8 +134,18 @@ def diagram_items(diagram: dict) -> list[tuple[str, str]]:
 # 意味項目: (slide_id, 種別, 値) の列。content 側と outline 側を同じ形に揃えて比較する。
 # ---------------------------------------------------------------------------
 
+DECK = "_deck"  # デッキ単位の意味項目に使う疑似 slide_id
+
+
+def deck_items(deck_id: str, metadata: dict) -> list[tuple[str, str, str]]:
+    """デッキメタデータ（deck_id・title・audience・objective 等）も欠落検査の対象にする。"""
+    items = [(DECK, "deck_id", deck_id)]
+    items += [(DECK, f"metadata.{k}", json.dumps(metadata[k], ensure_ascii=False)) for k in sorted(metadata)]
+    return items
+
+
 def semantic_items(content: dict) -> list[tuple[str, str, str]]:
-    items: list[tuple[str, str, str]] = []
+    items: list[tuple[str, str, str]] = deck_items(content["deck_id"], content["metadata"])
     for s in content["slides"]:
         sid = s["id"]
         add = lambda kind, value: items.append((sid, kind, value))  # noqa: E731
@@ -176,7 +186,10 @@ def semantic_items(content: dict) -> list[tuple[str, str, str]]:
 
 def outline_semantic_items(outline: dict) -> list[tuple[str, str, str]]:
     """outline.json から意味項目を復元する。adapter の写像規則の逆写像。"""
-    items: list[tuple[str, str, str]] = []
+    psl = outline["psl"]
+    if outline["title"] != psl["metadata"]["title"]:
+        raise ContentMismatch("デッキタイトルの表示が metadata.title と一致しません")
+    items: list[tuple[str, str, str]] = deck_items(psl["deck_id"], psl["metadata"])
     for s in outline["slides"]:
         meta = s["psl"]
         sid = meta["slide_id"]
@@ -373,6 +386,8 @@ def convert(content: dict, design: dict, asset_base: Path = Path("."), output_di
             "content_sha256": content_hash(content),
             "synthetic": meta["synthetic"],
             "classification": meta["classification"],
+            # audience / objective / language / content_locked を含むメタデータ全体を保持する
+            "metadata": meta,
             "theme": theme,
         },
         "slides": [convert_slide(s, overrides.get(s["id"], {}), asset_base.resolve(), output_dir.resolve())

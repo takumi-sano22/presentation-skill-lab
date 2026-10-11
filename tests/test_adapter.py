@@ -103,6 +103,9 @@ class AdapterTests(unittest.TestCase):
             "本文欠落": lambda o: o["slides"][1]["bullets"].pop(),
             "出典欠落": lambda o: o["slides"][4].pop("sources"),
             "順序入替": lambda o: o["slides"].reverse(),
+            "audience欠落": lambda o: o["psl"]["metadata"].pop("audience"),
+            "objective改変": lambda o: o["psl"]["metadata"].__setitem__("objective", "別の目的"),
+            "デッキタイトル改変": lambda o: o.__setitem__("title", "別タイトル"),
             "単位表示改変": lambda o: o["slides"][4]["chart"]["options"].__setitem__("valAxisTitle", "単位: 個"),
             "注記表示欠落": lambda o: o["slides"][3].pop("footer"),
         }
