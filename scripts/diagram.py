@@ -135,11 +135,12 @@ def label_lines(label: str, usable: float, pt: float) -> list[str]:
         if len(label) >= 4 and min(len(head.strip()), len(tail.strip())) < 2:
             continue  # 1文字だけの行を作らない
         w1, w2 = text_width_in(head.rstrip(), pt), text_width_in(tail, pt)
-        fits = w1 <= usable and w2 <= usable
+        if w1 > usable or w2 > usable:
+            continue  # どちらかの行が枠からはみ出す改行はしない
         bonus = BOUNDARY_BONUS.get((script_of(head[-1]), script_of(tail[0])), 0.0) * pt / 72
-        key = (not fits, max(w1, w2) - bonus)
-        if best is None or key < best[0]:
-            best = (key, [head.rstrip(), tail])
+        if best is None or max(w1, w2) - bonus < best[0]:
+            best = (max(w1, w2) - bonus, [head.rstrip(), tail])
+    # 両方の行が収まる改行位置が無ければ明示改行をせず、描画環境の折返しに任せる（ラベル全体の幅は check_geometry が検査）
     return best[1] if best else [label]
 
 

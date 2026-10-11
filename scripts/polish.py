@@ -155,13 +155,23 @@ def monospace_columns(block: str, columns: list[int], font: str) -> tuple[str, i
     return out, count
 
 
-def shapes_below(xml: str, y_emu: int) -> float:
-    """y より下にある文字図形の上端（インチ）。無ければフッタの上端。"""
+def shapes_below(xml: str, table_block: str) -> float:
+    """表の下にある描画オブジェクト（文字図形・画像・グラフ・別の表・線）のうち、表と横に重なるものの上端（インチ）。
+
+    表を広げてよいのはその手前まで。無ければフッタの上端。表自身は除く。
+    """
+    tx, ty, tw, th = frame_box(table_block)
     tops = []
-    for block in re.findall(r"<p:sp>.*?</p:sp>", xml, re.S):
-        m = re.search(r'<a:off x="-?\d+" y="(-?\d+)"/>', block)
-        if m and int(m.group(1)) > y_emu and "".join(para_texts(block)).strip():
-            tops.append(int(m.group(1)) / EMU)
+    for m in re.finditer(r"<p:(sp|pic|graphicFrame|cxnSp)>.*?</p:\1>", xml, re.S):
+        block = m.group(0)
+        if block == table_block:
+            continue
+        off = re.search(r'<a:off x="(-?\d+)" y="(-?\d+)"/>\s*<a:ext cx="(\d+)" cy="(\d+)"/>', block)
+        if not off:
+            continue
+        x, y, w, _ = (int(v) for v in off.groups())
+        if y >= ty + th - 1 and x < tx + tw and tx < x + w:
+            tops.append(y / EMU)
     return min(tops, default=SLIDE_H - 0.75)
 
 
@@ -262,7 +272,7 @@ def apply(pptx: Path, content: dict, outline: dict, design: dict) -> list[dict]:
             if override.get("monospace_columns"):
                 new, count = monospace_columns(new, override["monospace_columns"], code_font)
                 record.append({"slide_id": sid, "fix": "table-monospace", "font": code_font, "cells": count})
-            new, filled = enlarge_rows(new, shapes_below(xml, frame_box(block)[1] + frame_box(block)[3]))
+            new, filled = enlarge_rows(new, shapes_below(xml, block))
             if filled:
                 record.append({"slide_id": sid, "fix": "table-rows", "height_in": filled})
             xml = xml[:m.start()] + new + xml[m.end():]

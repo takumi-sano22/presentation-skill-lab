@@ -91,6 +91,15 @@ class TableTests(unittest.TestCase):
         # 十分な高さの表は変えない
         self.assertEqual(polish.enlarge_rows(table(self.ROWS, row_h_in=0.7), 5.0)[1], None)
 
+    def test_rows_stop_before_picture_chart_or_line_below(self):
+        # 表の下に画像・グラフ・線があれば、文字が無くてもその手前で止める（Codex 指摘）
+        block = table(self.ROWS)
+        below = (f'<p:pic><p:nvPicPr><p:cNvPr id="9" name="Picture 9"/></p:nvPicPr><p:spPr><a:xfrm>'
+                 f'<a:off x="{int(1 * EMU)}" y="{int(2.9 * EMU)}"/><a:ext cx="{int(2 * EMU)}" cy="{int(1 * EMU)}"/></a:xfrm></p:spPr></p:pic>')
+        self.assertAlmostEqual(polish.shapes_below(block + below, block), 2.9, places=3)
+        side = below.replace(f'x="{int(1 * EMU)}"', f'x="{int(9.6 * EMU)}"')  # 横に重ならない（右の装飾）は対象外
+        self.assertAlmostEqual(polish.shapes_below(block + side, block), polish.SLIDE_H - 0.75, places=3)
+
     def test_monospace_only_body_cells_of_selected_columns(self):
         out, count = polish.monospace_columns(table(self.ROWS), [1], "Consolas")
         self.assertEqual(count, 2)
@@ -134,6 +143,8 @@ class LabelLineTests(unittest.TestCase):
         for label, expected in cases.items():
             self.assertEqual(diagram.label_lines(label, 0.65, 11), expected, label)
         self.assertEqual(diagram.label_lines("外部ファイル", 2.0, 11), ["外部ファイル"])  # 収まれば改行しない
+        # どの改行位置でも片方の行がはみ出すなら明示改行しない（Codex 指摘）
+        self.assertEqual(diagram.label_lines("Authorization認可", 0.6, 11), ["Authorization認可"])
         for label in ("データー", "あいうえおかきく", "Query Tool Server"):
             lines = diagram.label_lines(label, 0.5, 11)
             self.assertEqual("".join(lines).replace(" ", ""), label.replace(" ", ""))
