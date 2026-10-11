@@ -68,6 +68,15 @@ class QaUnitTests(unittest.TestCase):
         # 内側余白 0 の小さなラベル（図の辺ラベル）は1行で収まる
         self.assertNotIn("text-overflow", checks(run_slide(sp("l", 1, 1, 0.62, 0.21, ["認可照会"], sz=900, ins=(0, 0, 0, 0)))))
 
+    def test_autofit_shrink_below_minimum_is_detected(self):
+        long = "長い本文" * 40
+        self.assertIn("min-font", checks(run_slide(sp("a", 1, 1, 2, 0.4, [long], sz=1600, autofit=True))))
+        # 少し縮めれば収まる程度なら問題なし
+        self.assertNotIn("min-font", checks(run_slide(sp("a", 1, 1, 4, 0.6, ["見出しの文言"], sz=2800, autofit=True))))
+        # PowerPoint が保存した縮小率（fontScale）も使う
+        xml = sp("b", 1, 1, 4, 1, ["本文"], sz=1200, autofit=True).replace("<a:normAutofit/>", '<a:normAutofit fontScale="62500"/>')
+        self.assertIn("min-font", checks(run_slide(xml)))
+
     def test_min_font(self):
         self.assertIn("min-font", checks(run_slide(sp("a", 1, 1, 3, 1, ["小さい"], sz=800))))
         self.assertNotIn("min-font", checks(run_slide(sp("a", 1, 1, 3, 1, ["九ポ"], sz=900))))

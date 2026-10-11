@@ -49,6 +49,7 @@ class Shape:
     flip: bool = False  # 線: flipH と flipV のどちらか一方だけなら右上がりの対角線
     insets: tuple[float, float, float, float] = (0.1, 0.05, 0.1, 0.05)  # 左・上・右・下（インチ）
     autofit: bool = False  # 縮小して収める指定（normAutofit / shrink）
+    font_scale: float = 1.0  # normAutofit に記録された縮小率（PowerPoint が保存した場合）
 
     @property
     def text(self) -> str:
@@ -93,8 +94,10 @@ def parse_shapes(xml: str) -> list[Shape]:
             return int(m.group(1)) / EMU if m else default
         insets = (inset("lIns", 0.1), inset("tIns", 0.05), inset("rIns", 0.1), inset("bIns", 0.05))
         autofit = "<a:normAutofit" in block or "<a:spAutoFit" in block
+        scale_m = re.search(r'<a:normAutofit[^>]*fontScale="(\d+)"', block)
+        font_scale = int(scale_m.group(1)) / 100000 if scale_m else 1.0
         shapes.append(Shape(html.unescape(name_m.group(1)) if name_m else "", kind, x, y, cx, cy,
-                            [t for t in texts if t.strip()], sizes, graphic, filled, flip, insets, autofit))
+                            [t for t in texts if t.strip()], sizes, graphic, filled, flip, insets, autofit, font_scale))
     return shapes
 
 
@@ -103,13 +106,27 @@ def text_width_in(text: str, pt: float) -> float:
     return em * pt / 72
 
 
-def estimated_text_height(shape: Shape) -> float:
+def estimated_text_height(shape: Shape, pt: float | None = None) -> float:
     """段落ごとに折返し行数を見積もった文字の高さ（インチ）。内側余白は bodyPr の値を使う。"""
-    pt = max(shape.font_sizes) if shape.font_sizes else 18.0
+    pt = pt or (max(shape.font_sizes) if shape.font_sizes else 18.0)
     left, top, right, bottom = shape.insets
     usable = max(0.1, shape.w - left - right)
     lines = sum(max(1, -(-text_width_in(t, pt) // usable)) for t in shape.texts)
     return lines * pt * LINE_HEIGHT / 72 + top + bottom
+
+
+def autofit_font_pt(shape: Shape) -> float:
+    """自動縮小の枠で、文字が収まるまで縮めたときの推定文字サイズ（pt）。
+
+    PowerPoint が保存した縮小率があればそれを使い、無ければ 0.5pt 刻みで収まる最大サイズを探す。
+    """
+    base = max(shape.font_sizes) if shape.font_sizes else 18.0
+    if shape.font_scale < 1.0:
+        return base * shape.font_scale
+    pt = base
+    while pt > 1.0 and estimated_text_height(shape, pt) > shape.h * OVERFLOW_TOLERANCE:
+        pt -= 0.5
+    return pt
 
 
 def load_exceptions(deck_dir: Path) -> list[dict]:
@@ -148,7 +165,11 @@ def check_slide(sid: str, slide: dict, o_slide: dict, shapes: list[Shape]) -> li
     # geometry: 文字量の推定あふれ
     for s in texted:
         if s.autofit:
-            continue  # 縮小して収める指定の枠はあふれない（最小文字サイズは別検査）
+            # 縮小して収める枠はあふれないが、縮小後の実効サイズが最小を下回れば J-1 違反
+            effective = autofit_font_pt(s)
+            if effective < MIN_FONT_PT:
+                add("min-font", s.name, f"自動縮小で約 {effective:.1f}pt まで縮む見込み（最小 {MIN_FONT_PT}pt）「{s.text[:16]}」")
+            continue
         need = estimated_text_height(s)
         if need > s.h * OVERFLOW_TOLERANCE and need - s.h > 0.12:
             add("text-overflow", s.name, f"文字が枠からあふれる見込み（必要 {need:.2f}in > 枠 {s.h:.2f}in）「{s.text[:16]}」")
