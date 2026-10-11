@@ -96,20 +96,36 @@ def png_info(data: bytes) -> tuple[int, int, bool, str]:
 
 
 def jpeg_info(data: bytes) -> tuple[int, int, bool, str]:
-    """(幅, 高さ, False, 色) — SOF マーカーから寸法と成分数（4 = CMYK）を読む。"""
-    i = 2
-    while i + 4 <= len(data):
-        if data[i] != 0xFF:
-            i += 1
+    """(幅, 高さ, False, 色)。SOI から順にセグメント境界をたどり、SOF → SOS → 圧縮データ → EOI 終端を検証する。"""
+    if data[:2] != b"\xff\xd8":
+        raise AssetError("JPEG の署名（SOI）がありません")
+    if data[-2:] != b"\xff\xd9":
+        raise AssetError("JPEG が EOI で終わっていません（途中で切れている）")
+    pos, size = 2, None
+    while True:
+        if pos + 4 > len(data) or data[pos] != 0xFF:
+            raise AssetError("JPEG のセグメント境界が不正です")
+        marker = data[pos + 1]
+        if marker == 0xFF:  # 詰め物
+            pos += 1
             continue
-        marker, length = data[i + 1], struct.unpack(">H", data[i + 2:i + 4])[0]
+        length = struct.unpack(">H", data[pos + 2:pos + 4])[0]
+        if length < 2 or pos + 2 + length > len(data):
+            raise AssetError("JPEG のセグメントが途中で切れています")
         if 0xC0 <= marker <= 0xCF and marker not in (0xC4, 0xC8, 0xCC):
-            if i + 10 > len(data):
-                break  # 途中で切れた JPEG
-            height, width, comps = struct.unpack(">HHB", data[i + 5:i + 10])
-            return width, height, False, "cmyk" if comps == 4 else "rgb"
-        i += 2 + length
-    raise AssetError("JPEG の寸法を読めません")
+            if length < 8:
+                raise AssetError("JPEG の SOF が短すぎます")
+            height, width, comps = struct.unpack(">HHB", data[pos + 5:pos + 10])
+            size = (width, height, comps)
+        if marker == 0xDA:  # SOS: 以降は圧縮データ。EOI の手前まで中身があること
+            if size is None:
+                raise AssetError("JPEG の SOF（寸法）が SOS より前にありません")
+            if pos + 2 + length >= len(data) - 2:
+                raise AssetError("JPEG に圧縮画像データがありません")
+            break
+        pos += 2 + length
+    width, height, comps = size
+    return width, height, False, "cmyk" if comps == 4 else "rgb"
 
 
 # SVG の長さ単位 → px（CSS の 96dpi 基準）
@@ -174,14 +190,15 @@ def check_svg(root: ET.Element, entry: dict) -> list[str]:
             errors.append(f"SVG に <{tag}> は使えません")
         for key, value in el.attrib.items():
             # 外部参照は描画環境で欠落し、権利も追えないため禁止（同一文書内の #id 参照は可）
-            if key.endswith("href") and not value.startswith("#"):
+            if key.lower().endswith("href") and not value.strip().startswith("#"):
                 errors.append(f"SVG に外部参照があります: {value[:60]}")
         # url(...) はすべての属性値（fill / filter / clip-path / style 等）と <style> 本文で検査する。
         # 参照先を引用符を除いて取り出し、同一文書内（#id）以外を外部参照とする
         values = list(el.attrib.values()) + ([el.text or ""] if tag == "style" else [])
         for value in values:
-            targets = [t.strip().strip("'\"").strip() for t in re.findall(r"url\(([^)]*)\)", value)]
-            if any(not t.startswith("#") for t in targets) or "@import" in value:
+            # CSS の関数名・キーワードは大文字小文字を区別しない（URL( / @IMPORT も同じ）
+            targets = [t.strip().strip("'\"").strip() for t in re.findall(r"url\(([^)]*)\)", value, re.I)]
+            if any(not t.startswith("#") for t in targets) or "@import" in value.lower():
                 errors.append(f"SVG に外部参照があります（url/@import）: {value[:60]}")
     return errors
 

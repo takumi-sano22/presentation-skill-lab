@@ -35,9 +35,11 @@ def make_png(width: int, height: int, color_type: int = 2) -> bytes:
 
 
 def make_jpeg_header(width: int, height: int, components: int) -> bytes:
-    """寸法・成分数だけを持つ JPEG 風バイト列（SOF0 まで）。"""
+    """構造（SOI・SOF0・SOS・圧縮データ・EOI）だけを持つ JPEG 風バイト列。検査関数のテスト用。"""
     sof = struct.pack(">BHHB", 8, height, width, components) + b"\x01\x11\x00" * components
-    return b"\xff\xd8" + b"\xff\xc0" + struct.pack(">H", len(sof) + 2) + sof + b"\xff\xd9"
+    sos = struct.pack(">B", components) + b"\x01\x00" * components + b"\x00\x3f\x00"
+    return (b"\xff\xd8" + b"\xff\xc0" + struct.pack(">H", len(sof) + 2) + sof +
+            b"\xff\xda" + struct.pack(">H", len(sos) + 2) + sos + b"\x12\x34\x56" + b"\xff\xd9")
 
 
 class AssetCheckTests(unittest.TestCase):
@@ -198,6 +200,22 @@ class AssetCheckTests(unittest.TestCase):
                                         "origin": {"type": "authored", "author": "x"}})
         self.save()
         self.assertTrue(any("manifest.yaml" in e for e in self.errors()))
+
+    def test_jpeg_structure_is_validated(self):
+        good = make_jpeg_header(1600, 900, 3)
+        self.assertEqual(assets.jpeg_info(good)[:2], (1600, 900))
+        sof_only = good[:good.index(b"\xff\xda")] + b"\xff\xd9"  # 圧縮データなし
+        for name, data in {"SOI なし": b"\x00" + good[1:], "圧縮データなし": sof_only, "EOI なし": good[:-2]}.items():
+            with self.subTest(name), self.assertRaises(assets.AssetError):
+                assets.jpeg_info(data)
+
+    def test_css_references_are_case_insensitive(self):
+        for i, style in enumerate(("fill:URL(https://x/a.svg#g)", "@IMPORT 'https://x/a.css';")):
+            with self.subTest(style):
+                self.setUp()
+                svg = f'<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900"><rect style="{style}"/></svg>'
+                self.add(f"c{i}.svg", svg.encode(), media_type="image/svg+xml", width=1600, height=900, transparent=True)
+                self.assertError("外部参照")
 
     def test_truncated_jpeg_is_reported_not_crashed(self):
         self.add("cut.jpg", make_jpeg_header(1600, 900, 3)[:9], media_type="image/jpeg", width=1600, height=900)
