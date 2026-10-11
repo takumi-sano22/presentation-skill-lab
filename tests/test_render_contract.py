@@ -102,8 +102,11 @@ class RenderContractTests(unittest.TestCase):
         xml = part_xml(self.render(adapter.convert(self.content, dark), "dark"), r"ppt/slides/slide\d+\.xml")
         colors = set(re.findall(r'srgbClr val="([0-9A-F]{6})"', xml))
         self.assertTrue({"0F172A", "E2E8F0", "0284C7"} <= colors, colors)
-        # midnight-neon 固有のアクセント（シアン・ピンク）が残っていない
-        self.assertFalse({"22D3EE", "F43F5E"} & colors, colors)
+        # midnight-neon 固有の色（アクセント・面・罫線）が残っていない
+        self.assertFalse({"22D3EE", "F43F5E", "101A33", "1E293B"} & colors, colors)
+        # 使われる色はすべて design 由来（背景・前景・アクセント・補助、面と罫線は背景/前景の混色、表ヘッダの白）
+        allowed = {"0F172A", "E2E8F0", "0284C7", "94A3B8", "171F32", "353D4E", "FFFFFF"}
+        self.assertTrue(colors <= allowed, colors - allowed)
 
 
 if __name__ == "__main__":

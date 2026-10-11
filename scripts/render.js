@@ -38,12 +38,22 @@ function luminance(value) {
   return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 }
 
+// 2色の線形混色（ratio=0 で a、1 で b）。design の色から面・罫線の色を導出する
+function mix(a, b, ratio) {
+  const pa = [0, 2, 4].map((i) => parseInt(hex(a).slice(i, i + 2), 16));
+  const pb = [0, 2, 4].map((i) => parseInt(hex(b).slice(i, i + 2), 16));
+  return pa.map((v, i) => Math.round(v + (pb[i] - v) * ratio).toString(16).padStart(2, '0')).join('').toUpperCase();
+}
+
 // design.theme → 上流プリセットのトークン。プリセット固有の色を残さず design の色だけで決める
 function themeTokens(theme) {
   const c = theme.colors;
   const muted = c.muted || c.foreground;
   return {
     bg: hex(c.background),
+    // カード・表本体の面は背景をわずかに前景へ寄せた色、罫線はさらに寄せた色
+    surface: mix(c.background, c.foreground, 0.04),
+    line: mix(c.background, c.foreground, 0.18),
     text: hex(c.foreground),
     text_muted: hex(muted),
     // 濃色面（見出し帯・表紙・行見出し）は背景と前景のうち暗い方。明色テーマでは前景、暗色テーマでは背景
@@ -101,4 +111,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { themeTokens, hex, luminance };
+module.exports = { themeTokens, hex, luminance, mix };

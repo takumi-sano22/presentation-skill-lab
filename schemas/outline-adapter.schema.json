@@ -57,8 +57,6 @@
               "headers": {"type": "array", "items": {"type": "string"}},
               "rows": {"type": "array", "items": {"type": "array", "items": {"type": "string"}}},
               "caption": {"type": "string"},
-          "kicker": {"type": "string"},
-          "title_layout": {"type": "string"},
               "footnotes": {"type": "array", "items": {"type": "string"}}
             }
           },
