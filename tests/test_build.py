@@ -154,6 +154,36 @@ class BuildCheckTests(unittest.TestCase):
         with self.assertRaises(build.BuildError):
             build.run(["psl-no-such-command-xyz"])
 
+    def test_display_width_counts_half_width_as_half(self):
+        self.assertEqual(build.display_width("認可ABCD"), 4.0)
+
+    def test_orphan_detection(self):
+        title = "データ基盤の認可境界を明示する"
+        self.assertEqual(build.find_orphan(title, ["データ基盤の認可境界を明示す", "る", "別の行"]), "る")
+        self.assertIsNone(build.find_orphan(title, ["データ基盤の認可境界", "を明示する"]))
+        self.assertIsNone(build.find_orphan(title, [build.normalize(title)]))
+
+    def test_japanese_checks(self):
+        long_title = "あ" * 41
+        content = {"slides": [{"id": "s1", "title": long_title, "takeaway": "要点です"},
+                              {"id": "s2", "title": "い" * 81, "takeaway": ""}]}
+        errors, warnings = build.check_japanese(content, [long_title + "\n要点で\nす\n", "い" * 81])
+        self.assertEqual(len(errors), 1)
+        self.assertTrue(any("全角換算 41" in w for w in warnings))
+        self.assertTrue(any("要点の泣き別れ" in w for w in warnings))
+
+    def test_theme_font_must_resolve(self):
+        from unittest import mock
+        answers = {"Noto Sans JP": "Noto Sans CJK JP,Noto Sans CJK JP Regular", "Foo Sans": "DejaVu Sans"}
+        fake = lambda cmd: answers[cmd[-1]]  # noqa: E731
+        with mock.patch.object(build, "run", fake):
+            ok, errors = build.resolve_theme_fonts({"fonts": {"heading": "Noto Sans JP", "body": "Noto Sans JP"}})
+            self.assertEqual(errors, [])
+            self.assertIn("Noto Sans CJK JP", ok["body"]["resolved"])
+            _, errors = build.resolve_theme_fonts({"fonts": {"heading": "Foo Sans", "body": "Noto Sans JP"}})
+            self.assertEqual(len(errors), 1)
+            self.assertIn("Foo Sans", errors[0])
+
     def test_font_checks(self):
         ja = {"name": "AAAAAA+NotoSansCJKjp-Regular", "type": "CID Type 0C", "embedded": True, "unicode": True}
         self.assertEqual(build.check_fonts([ja]), [])
@@ -203,6 +233,7 @@ class BuildIntegrationTests(unittest.TestCase):
         c = m["checks"]
         self.assertEqual((c["content_missing_in_pptx"], c["content_missing_in_pdf"], c["font_errors"]), ([], [], []))
         self.assertEqual(c["non_content_text"], {})
+        self.assertEqual((c["japanese_errors"], c["japanese_warnings"]), ([], []))
 
     def test_gallery_lists_every_png(self):
         page = (self.out / "index.html").read_text(encoding="utf-8")

@@ -12,8 +12,12 @@ RUN apt-get update \
       python3 \
       python3-venv \
       python3-pip \
- && rm -rf /var/lib/apt/lists/* \
- && fc-cache -f
+ && rm -rf /var/lib/apt/lists/*
+
+# design.yaml の標準フォント名「Noto Sans JP」を、同じ字形の Noto Sans CJK JP で解決する
+# （PPTX には design のフォント名をそのまま書き、描画環境の別名で解決する）
+COPY docker/fonts.conf /etc/fonts/conf.d/60-psl-ja.conf
+RUN fc-cache -f
 
 # Python 依存は venv に隔離（Debian の externally-managed 制約を避けるため）
 COPY requirements-dev.txt /opt/psl/requirements-dev.txt

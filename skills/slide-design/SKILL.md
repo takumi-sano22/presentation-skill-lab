@@ -12,4 +12,4 @@ description: content.yaml の文言や数値を変えずに、技術スライド
 5. 文章が収まらないときは、字を極端に縮小せず内容担当に具体的な分割案を渡す。
 6. `slide-qa` の基準で見直し、変更 Slide ID と理由を報告する。
 
-`scripts/build` で PPTX/PDF/PNG に変換できる。design.yaml のフォント・配色・density は上流未対応のため現状未適用（manifest/outline の `unapplied_design` に列挙、#5 で適用）。
+`scripts/build` で PPTX/PDF/PNG に変換できる。design.yaml の `theme`（technical-light / technical-dark、フォント、配色トークン）は適用済み。`density` は上流未対応のため未適用（`unapplied_design` に列挙）。日本語テーマ規約 J-1〜J-8（`docs/design-rules.md`）に従い、配色はコントラスト検査を通すこと。

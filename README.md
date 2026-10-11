@@ -2,7 +2,7 @@
 
 Claude Code と ChatGPT の双方から、**中身とデザインを分離**して技術系スライドを生成するためのスキル開発リポジトリ。
 
-> **状態: Phase 1 着手中。** 上流レンダラ（`vendor/presentation-skill` v0.14.0）の固定と描画環境の doctor まで実装済みです。`content.yaml`/`design.yaml` → `outline.json` の adapter と、PPTX/PDF/PNG/静的プレビューを出す共通ビルド CLI（`scripts/build`）まで実装済みです。日本語テーマ（#5）・ネイティブ図（#6）は**未実装**です。`scripts/validate.py` は共通データ契約と参照の検査のみです。
+> **状態: Phase 1 着手中。** 上流レンダラ（`vendor/presentation-skill` v0.14.0）の固定と描画環境の doctor まで実装済みです。`content.yaml`/`design.yaml` → `outline.json` の adapter と、PPTX/PDF/PNG/静的プレビューを出す共通ビルド CLI（`scripts/build`）まで実装済みです。日本語テーマ（technical-light / technical-dark）まで実装済み、ネイティブ図（#6）・アセット管理（#7）・総合QA（#8）は**未実装**です。`scripts/validate.py` は共通データ契約と参照の検査のみです。
 
 ## 確定事項
 
@@ -91,7 +91,7 @@ python3 scripts/adapter.py \
 
 - 文言・数値・単位・表セル・図ラベル・出典・注記を意味項目として抽出し、変換後の outline.json から逆写像した項目と**順序込みで完全一致**しなければ FAIL（`ContentMismatch`）。
 - 写像できない内容は FAIL（`UnsupportedContent`）。黙って捨てたり画像化しない。図は #6 までテキスト行（`A → B（ラベル）`）へ明示的にフォールバックし、`psl.fallback` に記録する。
-- 上流 v0.14.0 に写像先がない design 指定（`theme.fonts`・`theme.colors`・`density`）は `psl.unapplied_design` に列挙し WARN を出す（適用は #5）。
+- 上流 v0.14.0 に写像先がない design 指定（現状 `density`）は `psl.unapplied_design` に列挙し WARN を出す。
 - 出力は正規化 JSON（キー順固定）で、同一入力なら `outline_sha256` が一致する。出力の形は `schemas/outline-adapter.schema.json`、スキーマ変更手順は [`docs/schema-versioning.md`](docs/schema-versioning.md)。
 - `outline.json` は生成物。編集しても次回変換で失われる。
 
@@ -110,6 +110,20 @@ scripts/build \
 - 警告（manifest `checks.non_content_text`）: content 由来でない文言（レンダラの装飾ラベル等）。
 - `manifest.json` に入力 hash（content/design）、adapter 版、上流 tag/commit・プリセット、Node/LibreOffice/poppler の版、PDF の埋め込みフォント、全成果物の sha256、フォールバック（例: 図のテキスト表示）を記録。
 - **PASS は内容保持と描画環境の検査結果であり、デザイン品質の保証ではありません。** 全ページの PNG を目視確認してください。CI では生成物を Actions の artifact として保存します。
+
+## 日本語テーマ（design.yaml だけで見た目を変える）
+
+```bash
+# 同じ content.yaml を暗色テーマでビルド（content_sha256 は変わらない）
+scripts/build \
+  --content examples/technical-architecture/content.yaml \
+  --design examples/technical-architecture/design-dark.yaml \
+  --out build/sample-dark
+```
+
+- `theme.name`（technical-light → 上流 arctic-minimal、technical-dark → midnight-neon を基底）と、`theme.fonts`・`theme.colors` のトークンを `scripts/render.js` が上流プリセットへ注入して描画する（上流コードは改変しない）。
+- フォント名は design の値（例: Noto Sans JP）を PPTX の欧文・和文の両方に書き、描画環境では fontconfig の別名で Noto Sans CJK JP に解決する。
+- 配色コントラスト（本文 4.5:1 等）を満たさないテーマは FAIL。タイトル長・泣き別れは WARN。規約と例外・出典は [`docs/design-rules.md`](docs/design-rules.md)「日本語テーマ規約」。
 
 ## WSL でのセットアップ（入力検証のみ）
 
