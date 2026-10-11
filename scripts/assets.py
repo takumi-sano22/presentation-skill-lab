@@ -99,11 +99,13 @@ def check_svg(root: ET.Element, entry: dict) -> list[str]:
             # 外部参照は描画環境で欠落し、権利も追えないため禁止（同一文書内の #id 参照は可）
             if key.endswith("href") and not value.startswith("#"):
                 errors.append(f"SVG に外部参照があります: {value[:60]}")
-        style = (el.text or "") if tag == "style" else el.get("style", "")
-        # url(...) の参照先を引用符を除いて取り出し、同一文書内（#id）以外を外部参照とする
-        targets = [t.strip().strip("'\"").strip() for t in re.findall(r"url\(([^)]*)\)", style)]
-        if any(not t.startswith("#") for t in targets) or "@import" in style:
-            errors.append("SVG のスタイルに外部参照があります")
+        # url(...) はすべての属性値（fill / filter / clip-path / style 等）と <style> 本文で検査する。
+        # 参照先を引用符を除いて取り出し、同一文書内（#id）以外を外部参照とする
+        values = list(el.attrib.values()) + ([el.text or ""] if tag == "style" else [])
+        for value in values:
+            targets = [t.strip().strip("'\"").strip() for t in re.findall(r"url\(([^)]*)\)", value)]
+            if any(not t.startswith("#") for t in targets) or "@import" in value:
+                errors.append(f"SVG に外部参照があります（url/@import）: {value[:60]}")
     return errors
 
 

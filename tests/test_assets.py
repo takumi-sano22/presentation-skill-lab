@@ -150,6 +150,14 @@ class AssetCheckTests(unittest.TestCase):
         self.add("bad.svg", bad.encode(), media_type="image/svg+xml", width=1600, height=900)
         self.assertError("外部参照")
 
+    def test_svg_presentation_attribute_urls_are_checked(self):
+        for i, attr in enumerate(('fill="url(https://example.com/a.svg#g)"', 'filter="url(\'http://x/f.svg#f\')"')):
+            with self.subTest(attr):
+                self.setUp()
+                svg = f'<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900"><rect {attr} width="9" height="9"/></svg>'
+                self.add(f"p{i}.svg", svg.encode(), media_type="image/svg+xml", width=1600, height=900)
+                self.assertError("外部参照")
+
     def test_truncated_jpeg_is_reported_not_crashed(self):
         self.add("cut.jpg", make_jpeg_header(1600, 900, 3)[:9], media_type="image/jpeg", width=1600, height=900)
         self.assertError("解析できません")
