@@ -39,6 +39,7 @@ def cross_validate(content: dict, design: dict, content_dir: Path) -> list[str]:
     for sid in design.get("overrides", {}):
         if sid not in ids:
             errors.append(f"design.overrides の {sid} は content に存在しません")
+    errors += design_v02_errors(design, {s.get("id"): s for s in slides if isinstance(s, dict)})
     for slide in slides:
         if not isinstance(slide, dict):
             continue
@@ -74,6 +75,25 @@ def cross_validate(content: dict, design: dict, content_dir: Path) -> list[str]:
                 errors.append(f"{sid}: asset_ref が content ディレクトリ外を参照します")
             elif not path.is_file():
                 errors.append(f"{sid}: アセットが存在しません {asset}")
+    return errors
+
+
+def design_v02_errors(design: dict, slides: dict[str, dict]) -> list[str]:
+    """design v0.2 の項目（theme.fonts.code・overrides.*.monospace_columns）の整合性。"""
+    errors = []
+    uses = "code" in design.get("theme", {}).get("fonts", {}) or any(
+        "monospace_columns" in o for o in design.get("overrides", {}).values() if isinstance(o, dict))
+    if uses and design.get("schema_version") != "0.2":
+        errors.append(f"design: fonts.code・monospace_columns は schema_version: '0.2' で使えます（現在 {design.get('schema_version')}）")
+    for sid, o in design.get("overrides", {}).items():
+        cols = o.get("monospace_columns") if isinstance(o, dict) else None
+        if not cols:
+            continue
+        table = slides.get(sid, {}).get("table")
+        if not table:
+            errors.append(f"design.overrides.{sid}.monospace_columns: 表のないスライドです")
+        elif max(cols) >= len(table.get("headers", [])):
+            errors.append(f"design.overrides.{sid}.monospace_columns: 列番号 {max(cols)} が表の列数 {len(table.get('headers', []))} を超えます")
     return errors
 
 

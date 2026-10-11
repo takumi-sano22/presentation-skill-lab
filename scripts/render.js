@@ -45,6 +45,9 @@ function mix(a, b, ratio) {
   return pa.map((v, i) => Math.round(v + (pb[i] - v) * ratio).toString(16).padStart(2, '0')).join('').toUpperCase();
 }
 
+// 暗色テーマの見出し帯: 背景から前景へ寄せる割合（tests/test_render_contract.py でコントラストを検査）
+const DARK_BAND_MIX = 0.12;
+
 // design.theme → 上流プリセットのトークン。プリセット固有の色を残さず design の色だけで決める
 function themeTokens(theme) {
   const c = theme.colors;
@@ -56,8 +59,10 @@ function themeTokens(theme) {
     line: mix(c.background, c.foreground, 0.18),
     text: hex(c.foreground),
     text_muted: hex(muted),
-    // 濃色面（見出し帯・表紙・行見出し）は背景と前景のうち暗い方。明色テーマでは前景、暗色テーマでは背景
-    bg_dark: hex(luminance(c.background) < luminance(c.foreground) ? c.background : c.foreground),
+    // 濃色面（見出し帯・表紙・行見出し）は背景と前景のうち暗い方。明色テーマでは前景。
+    // 暗色テーマでは背景そのものだと見出し帯が背景に溶けて見えないため、背景を前景へ 12% 寄せた色にする（#22）
+    bg_dark: luminance(c.background) < luminance(c.foreground)
+      ? mix(c.background, c.foreground, DARK_BAND_MIX) : hex(c.foreground),
     accent_primary: hex(c.accent),
     // design に第2アクセントはないため、補助色（要点・グラフ第2系列）は muted を使う
     accent_secondary: hex(muted),
@@ -122,7 +127,9 @@ function drawDiagram(pptx, pSlide, lay, preset) {
     }
     if (e.label_box) {
       const b = e.label_box;
-      pSlide.addText(e.label, {
+      // 改行位置は配置計算（diagram.label_lines）が禁則と左右の長さで決めたもの。文字列は変えず a:br で改行する
+      const lines = e.label_lines || [e.label];
+      pSlide.addText(lines.map((t, k) => ({ text: t, options: { softBreakBefore: k > 0 } })), {
         x: b.x, y: b.y, w: b.w, h: b.h, objectName: `edge-label:${e.index}:${e.from}:${e.to}`,  // addText は名前を二重エスケープするため ">" を使わない
         fontFace: font, fontSize: lay.edge_font_pt, color: preset.text, align: 'center', valign: 'middle',
         fill: { color: preset.bg }, margin: 0,
@@ -130,8 +137,9 @@ function drawDiagram(pptx, pSlide, lay, preset) {
     }
   }
   for (const n of lay.nodes) {
-    const runs = [{ text: n.label, options: { fontSize: n.font_pt || lay.node_font_pt, bold: true, color: preset.text,
-      breakLine: Boolean(n.description) } }];
+    const lines = n.lines || [n.label];
+    const runs = lines.map((t, k) => ({ text: t, options: { fontSize: n.font_pt || lay.node_font_pt, bold: true,
+      color: preset.text, softBreakBefore: k > 0, breakLine: Boolean(n.description) && k === lines.length - 1 } }));
     if (n.description) runs.push({ text: n.description, options: { fontSize: lay.desc_font_pt, color: preset.text_muted } });
     pSlide.addText(runs, {
       shape: pptx.ShapeType[NODE_SHAPES[n.kind] || 'rect'], x: n.x, y: n.y, w: n.w, h: n.h,
@@ -293,4 +301,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { themeTokens, hex, luminance, mix };
+module.exports = { themeTokens, hex, luminance, mix, DARK_BAND_MIX };

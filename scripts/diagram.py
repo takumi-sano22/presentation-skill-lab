@@ -71,17 +71,23 @@ class Box:
 
 
 # ノード種別の図形で、文字を置ける幅の割合（楕円・六角形は内側の文字領域が狭い）
-SHAPE_TEXT_RATIO = {"actor": 0.72, "policy": 0.72, "datastore": 0.95, "tool": 0.92}
+def text_area_width(kind: str, node_w: float, node_h: float = NODE_H) -> float:
+    """図形の文字領域の幅（インチ）。OOXML の既定図形（presetShapeDefinitions）の文字矩形に沿って求める。
+
+    楕円は内接矩形（幅×cos45°）、六角形は左右の頂点の張り出し（短辺×調整値 25% ずつ）、角丸は角の丸み分、
+    円柱・矩形は全幅。描画側の内側余白はほぼ 0 のため、字幅の誤差分として 0.04in だけ引く。
+    以前の一律の比率（-0.16in）は保守的すぎて、1行に収まるラベルまで折り返す判定になっていた（#22）。
+    """
+    ss = min(node_w, node_h)
+    inner = {"actor": node_w * 0.7071, "policy": node_w - 2 * ss * 0.25,
+             "tool": node_w - 2 * ss * 0.16667 * 0.29289}.get(kind, node_w)
+    return inner - 0.04
 
 
-def text_area_width(kind: str, node_w: float) -> float:
-    return node_w * SHAPE_TEXT_RATIO.get(kind, 1.0) - 0.16
-
-
-def node_font_pt(label: str, node_w: float, kind: str = "") -> float:
+def node_font_pt(label: str, node_w: float, kind: str = "", node_h: float = NODE_H) -> float:
     """ノード名の文字サイズ。標準 11pt で折り返す場合、1行に収まるなら最小 NODE_MIN_FONT_PT まで下げる
     （1〜2文字だけの折返しを避ける）。収まらなければ 11pt のまま2行にする。図形の文字領域の幅で判定する。"""
-    usable = text_area_width(kind, node_w)
+    usable = text_area_width(kind, node_w, node_h)
     if text_width_in(label, NODE_FONT_PT) <= usable:
         return NODE_FONT_PT
     pt = NODE_FONT_PT
@@ -90,6 +96,52 @@ def node_font_pt(label: str, node_w: float, kind: str = "") -> float:
         if text_width_in(label, pt) <= usable:
             return pt
     return NODE_FONT_PT
+
+
+# 行頭に置かない文字（行頭禁則）。改行位置の候補から外す
+NO_LINE_START = set("、。，．・：；？！ー）」』】〕ぁぃぅぇぉっゃゅょゎァィゥェォッャュョヮヵヶ")
+
+
+def script_of(c: str) -> str:
+    if c.isascii():
+        return "latin"
+    name = unicodedata.name(c, "")
+    if "KATAKANA" in name or c == "ー":
+        return "kata"
+    return "hira" if "HIRAGANA" in name else "kanji"
+
+
+# 改行位置の優先度（em）: カタカナ語・英字の前や、カタカナ語の後の漢字の前は語の切れ目になりやすい。
+# 漢字の後のひらがな（送り仮名「込|み」）では分けない
+BOUNDARY_BONUS = {("hira", "kata"): 1.5, ("kanji", "kata"): 1.5, ("kata", "kanji"): 1.5, ("hira", "latin"): 1.5,
+                  ("kanji", "latin"): 1.5, ("latin", "kanji"): 1.5, ("latin", "kata"): 1.5, ("kata", "latin"): 1.5,
+                  ("hira", "kanji"): 1.2}
+
+
+def label_lines(label: str, usable: float, pt: float) -> list[str]:
+    """ラベルを行に分ける。1行に収まらなければ、禁則を守り、語の切れ目で左右の長さが揃う位置で2行に分ける。
+
+    描画環境の自動折返しに任せると「取り込みジョ／ブ」のように1文字だけが次の行に残るため、
+    改行位置を決めて明示的な改行（a:br）で描く。文字列そのものは変えない。
+    """
+    if text_width_in(label, pt) <= usable or len(label) < 2:
+        return [label]
+    best = None
+    for i in range(1, len(label)):
+        head, tail = label[:i], label[i:]
+        if tail[0] in NO_LINE_START or tail[0].isspace() or (head[-1].isascii() and tail[0].isascii()
+                                                             and head[-1].isalnum() and tail[0].isalnum()):
+            continue  # 行頭禁則・空白始まり・英単語の途中では分けない
+        if len(label) >= 4 and min(len(head.strip()), len(tail.strip())) < 2:
+            continue  # 1文字だけの行を作らない
+        w1, w2 = text_width_in(head.rstrip(), pt), text_width_in(tail, pt)
+        if w1 > usable or w2 > usable:
+            continue  # どちらかの行が枠からはみ出す改行はしない
+        bonus = BOUNDARY_BONUS.get((script_of(head[-1]), script_of(tail[0])), 0.0) * pt / 72
+        if best is None or max(w1, w2) - bonus < best[0]:
+            best = (max(w1, w2) - bonus, [head.rstrip(), tail])
+    # 両方の行が収まる改行位置が無ければ明示改行をせず、描画環境の折返しに任せる（ラベル全体の幅は check_geometry が検査）
+    return best[1] if best else [label]
 
 
 def text_width_in(text: str, pt: float) -> float:
@@ -276,7 +328,9 @@ def _layout(diagram: dict, bands: bool) -> dict:
         "edge_font_pt": EDGE_FONT_PT,
         "group_font_pt": GROUP_FONT_PT,
         "nodes": [{"id": n["id"], "label": n["label"], "description": n.get("description", ""),
-                   "kind": n.get("kind", ""), "font_pt": node_font_pt(n["label"], node_w, n.get("kind", "")),
+                   "kind": n.get("kind", ""), "font_pt": node_font_pt(n["label"], node_w, n.get("kind", ""), node_h),
+                   "lines": label_lines(n["label"], text_area_width(n.get("kind", ""), node_w, node_h),
+                                        node_font_pt(n["label"], node_w, n.get("kind", ""), node_h)),
                    **boxes[n["id"]].as_dict()} for n in nodes],
         "edges": [dict(e, dash=EDGE_KINDS[e["kind"]][1]) for e in edge_shapes],
         "groups": groups,
@@ -368,6 +422,7 @@ def place_edge_labels(result: dict, gap_x: float) -> None:
             raise LayoutError(f"辺 {e['from']}->{e['to']} のラベル「{e['label']}」を重ならずに置けません")
         placed.append(chosen)
         e["label_box"] = chosen.as_dict()
+        e["label_lines"] = label_lines(e["label"], w, EDGE_FONT_PT)
 
 
 def place_group_labels(result: dict) -> None:
@@ -416,7 +471,7 @@ def check_geometry(result: dict) -> None:
                 errors.append(f"ノード {a} と {other} が重なります")
     for n in result["nodes"]:
         # ラベルは2行・説明は2行までに収まるか（ノード内の左右余白 0.08 in）
-        usable = text_area_width(n["kind"], n["w"])
+        usable = text_area_width(n["kind"], n["w"], n["h"])
         if text_width_in(n["label"], n.get("font_pt", result["node_font_pt"])) > 2 * usable:
             errors.append(f"ノード {n['id']} のラベル「{n['label']}」が箱に収まりません")
         if n["description"] and text_width_in(n["description"], result["desc_font_pt"]) > 2 * usable:
