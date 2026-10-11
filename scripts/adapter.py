@@ -21,6 +21,7 @@ import validate  # noqa: E402  入力契約の検証を共有する
 
 ADAPTER_VERSION = "0.1.0"
 SUPPORTED_SCHEMA_VERSIONS = {"0.1"}
+JS_MAX_SAFE_INTEGER = 2**53 - 1
 
 # design.theme.name → 上流のプリセット名。上流は deck_style からではなく CLI の --style-preset で
 # プリセットを選ぶため、outline の psl.render.style_preset に置き、ビルド CLI（#4）が引数へ渡す契約とする
@@ -92,6 +93,9 @@ def format_number(value: float | int) -> str:
     """数値の文字列表現を固定する（20 と 20.0 を区別しない）。"""
     if isinstance(value, bool):
         raise UnsupportedContent(f"真偽値は数値として扱えません: {value}")
+    # 上流レンダラは JavaScript の Number で読むため、安全整数範囲外は丸められて表示値が変わる
+    if isinstance(value, int) and abs(value) > JS_MAX_SAFE_INTEGER:
+        raise UnsupportedContent(f"JavaScript で正確に表せない整数です: {value}")
     if not math.isfinite(value):
         raise UnsupportedContent(f"有限でない数値は扱えません: {value}")
     return str(int(value)) if float(value).is_integer() else repr(float(value))

@@ -131,6 +131,8 @@ class AdapterTests(unittest.TestCase):
             "円グラフ": lambda c, d: c["slides"][4]["chart"].__setitem__("type", "pie"),
             "NaN値": lambda c, d: c["slides"][4]["chart"]["series"][0]["values"].__setitem__(0, float("nan")),
             "無限大値": lambda c, d: c["slides"][4]["chart"]["series"][0]["values"].__setitem__(1, float("inf")),
+            "JS安全整数外": lambda c, d: c["slides"][4]["chart"]["series"][0]["values"].__setitem__(0, 2**53 + 1),
+            "巨大整数": lambda c, d: c["slides"][4]["chart"]["series"][0]["values"].__setitem__(0, 10**400),
         }
         for name, mutate in cases.items():
             with self.subTest(name):
