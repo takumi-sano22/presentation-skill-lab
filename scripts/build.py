@@ -306,6 +306,26 @@ def check_japanese(content: dict, page_texts: list[str]) -> tuple[list[str], lis
     return errors, warnings
 
 
+# design のフォント名 → 描画環境で解決されるべきファミリ（docker/fonts.conf の別名と一致させる）
+FONT_ALIASES = {"Noto Sans JP": "Noto Sans CJK JP"}
+
+
+def resolve_theme_fonts(theme: dict) -> tuple[dict, list[str]]:
+    """theme の heading/body が描画環境で要求どおりのファミリに解決されるかを fc-match で確かめる。
+
+    存在しないフォントは LibreOffice が黙って代替し、字幅の違いでレイアウトが変わるため FAIL にする。
+    """
+    resolved, errors = {}, []
+    for role in ("heading", "body"):
+        requested = theme["fonts"][role]
+        families = [f.strip() for f in run(["fc-match", "-f", "%{family}", requested]).split(",")]
+        expected = FONT_ALIASES.get(requested, requested)
+        resolved[role] = {"requested": requested, "resolved": families}
+        if expected not in families:
+            errors.append(f"theme.fonts.{role}「{requested}」が描画環境にありません（fc-match: {', '.join(families)}）")
+    return resolved, errors
+
+
 def check_fonts(fonts: list[dict]) -> list[str]:
     errors = [f"埋め込まれていないフォント: {f['name']}" for f in fonts if not f["embedded"]]
     if not any("CJK" in f["name"] or "JP" in f["name"] for f in fonts):
@@ -357,11 +377,16 @@ def build(content_path: Path, design_path: Path, out: Path) -> dict:
     outline_path = out / "outline.json"
     outline_path.write_text(outline_text, encoding="utf-8")
 
-    # 2. PPTX（固定コミットの上流レンダラ）
+    # 2. テーマ書体の実在確認（代替フォントでの描画を成功扱いにしない）
+    theme_fonts, theme_font_errors = resolve_theme_fonts(design["theme"])
+    if theme_font_errors:
+        raise BuildError("\n".join(theme_font_errors))
+
+    # 3. PPTX（固定コミットの上流レンダラ＋テーマ注入）
     pptx = out / "deck.pptx"
     render_pptx(outline_path, pptx)
 
-    # 3. PDF / 4. PNG
+    # 4. PDF / 5. PNG
     pdf = convert_pdf(pptx, out)
     if pdf.name != "deck.pdf":
         pdf = pdf.rename(out / "deck.pdf")
@@ -370,7 +395,7 @@ def build(content_path: Path, design_path: Path, out: Path) -> dict:
         raise BuildError(f"PDF ページ数 {pages} とスライド数 {len(slide_ids)} が一致しません")
     pngs = render_png(pdf, out / "png", slide_ids)
 
-    # 5. 検査（内容欠落・フォント埋め込み）
+    # 6. 検査（内容欠落・フォント埋め込み・和文組版）
     fonts = pdf_fonts(pdf)
     missing = check_content_in_pptx(content, pptx)
     missing_pdf = check_content_in_pdf(content, pdf, pages)
@@ -393,7 +418,7 @@ def build(content_path: Path, design_path: Path, out: Path) -> dict:
             "libreoffice": tool_version(["soffice", "--headless", "--version"]),
             "poppler": tool_version(["pdftoppm", "-v"]),
         },
-        "fonts": {"pdf": fonts, "ja_fallback": tool_version(["fc-match", "sans-serif:lang=ja"])},
+        "fonts": {"theme": theme_fonts, "pdf": fonts, "ja_fallback": tool_version(["fc-match", "sans-serif:lang=ja"])},
         "slides": len(slide_ids),
         "pdf_pages": pages,
         "artifacts": {

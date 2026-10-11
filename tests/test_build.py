@@ -172,6 +172,18 @@ class BuildCheckTests(unittest.TestCase):
         self.assertTrue(any("全角換算 41" in w for w in warnings))
         self.assertTrue(any("要点の泣き別れ" in w for w in warnings))
 
+    def test_theme_font_must_resolve(self):
+        from unittest import mock
+        answers = {"Noto Sans JP": "Noto Sans CJK JP,Noto Sans CJK JP Regular", "Foo Sans": "DejaVu Sans"}
+        fake = lambda cmd: answers[cmd[-1]]  # noqa: E731
+        with mock.patch.object(build, "run", fake):
+            ok, errors = build.resolve_theme_fonts({"fonts": {"heading": "Noto Sans JP", "body": "Noto Sans JP"}})
+            self.assertEqual(errors, [])
+            self.assertIn("Noto Sans CJK JP", ok["body"]["resolved"])
+            _, errors = build.resolve_theme_fonts({"fonts": {"heading": "Foo Sans", "body": "Noto Sans JP"}})
+            self.assertEqual(len(errors), 1)
+            self.assertIn("Foo Sans", errors[0])
+
     def test_font_checks(self):
         ja = {"name": "AAAAAA+NotoSansCJKjp-Regular", "type": "CID Type 0C", "embedded": True, "unicode": True}
         self.assertEqual(build.check_fonts([ja]), [])
