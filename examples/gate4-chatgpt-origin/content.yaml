@@ -1,0 +1,76 @@
+# Gate 4-B: ChatGPTが作成した内容ソース
+# 架空のイベント連携基盤を題材とする合成データ。design.yaml はClaude Codeが別途作成する。
+schema_version: '0.1'
+deck_id: gate4-chatgpt-origin
+metadata:
+  title: 架空のイベント連携基盤の設計比較
+  audience: データ基盤エンジニア
+  objective: 差分同期と全件再照合の役割を共有する
+  language: ja-JP
+  classification: public
+  synthetic: true
+  content_locked: true
+slides:
+  - id: g401
+    type: cover
+    title: イベント連携と再照合を役割で分ける
+    takeaway: 実測値や特定サービスに依存しない架空の設計例
+  - id: g402
+    type: claim
+    title: 差分の速さと全件の正確さは別に検証する
+    takeaway: 同期処理が完了しても整合性は自動的には保証されない
+    body:
+      - 更新イベントは変更の反映を短い周期で進める
+      - 日次照合は欠損や重複を別の指標として検出する
+      - 両経路の結果を照合ログに残して原因を追跡する
+  - id: g403
+    type: architecture
+    title: 差分反映と再照合は同じ原本を参照する
+    takeaway: データの正本と検証経路を明示する
+    diagram:
+      nodes:
+        - {id: source, label: 原本DB, kind: datastore}
+        - {id: events, label: 更新イベント, kind: tool}
+        - {id: loader, label: 差分反映, kind: compute}
+        - {id: store, label: 分析DB, kind: datastore}
+        - {id: audit, label: 日次照合, kind: policy}
+      edges:
+        - {from: source, to: events, label: 変更通知, kind: data}
+        - {from: events, to: loader, label: 更新情報, kind: data}
+        - {from: loader, to: store, label: 差分更新, kind: data}
+        - {from: source, to: audit, label: 正本との比較, kind: control}
+        - {from: audit, to: store, label: 照合結果, kind: control}
+    source_refs:
+      - 合成データと架空のシステム構成
+  - id: g404
+    type: comparison
+    title: 3方式は用途と障害検出範囲が異なる
+    takeaway: 更新速度だけでは同期方式を評価できない
+    table:
+      headers: [方式, 役割, 検出したい問題]
+      rows:
+        - [イベント同期, 変更を早く反映, 遅延]
+        - [周期ポーリング, 取りこぼしを補完, 取得漏れ]
+        - [日次全件照合, 正本と突き合わせ, 欠損と重複]
+    notes: 合成設計であり、特定製品の性能を示すものではない
+  - id: g405
+    type: chart
+    title: 検査対象を追加すると確認件数が増える
+    takeaway: 件数の差は架空の検証例であり実測値ではない
+    chart:
+      type: bar
+      categories: [差分のみ, 漏れ検査追加, 全件照合追加]
+      series:
+        - name: 合成検査件数
+          values: [18, 24, 31]
+      unit: 件
+    source_refs:
+      - 合成データ・検証用途のみ
+  - id: g406
+    type: appendix
+    title: 不一致は原因別に記録して再処理する
+    takeaway: 差分の再実行と全件の再照合は区別する
+    body:
+      - 更新時刻と最終同期時刻を同じ基準で比較する
+      - 重複キーと欠損キーは別々に集計する
+      - 復旧後に同一入力で差分と全件の両方を確認する
