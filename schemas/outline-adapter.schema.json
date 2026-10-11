@@ -11,7 +11,11 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["style_preset"],
-      "properties": {"style_preset": {"type": "string"}}
+      "properties": {
+        "style_preset": {"type": "string"},
+        "renderer_role_systems_v1": {"type": "object"},
+        "footer_source_label": {"type": "string"}
+      }
     },
     "document_metadata": {"type": "object"},
     "psl": {
@@ -30,11 +34,12 @@
         "required": ["type", "variant", "title", "psl"],
         "properties": {
           "type": {"enum": ["title", "section", "content"]},
-          "variant": {"enum": ["title", "section", "standard", "table", "chart", "image-sidebar"]},
+          "variant": {"enum": ["title", "section", "standard", "table", "chart"]},
           "title": {"type": "string", "minLength": 1},
           "subtitle": {"type": "string"},
           "bullets": {"type": "array", "items": {"type": "string"}},
           "footer": {"type": "string"},
+          "caption": {"type": "string"},
           "notes": {"type": "string"},
           "sources": {"type": "array", "items": {"type": "string"}},
           "table": {
@@ -51,15 +56,13 @@
           "chart": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["type", "categories", "series", "options"],
+            "required": ["type", "categories", "series"],
             "properties": {
               "type": {"enum": ["bar", "line", "pie"]},
               "categories": {"type": "array", "items": {"type": "string"}},
-              "series": {"type": "array", "items": {"type": "object"}},
-              "options": {"type": "object"}
+              "series": {"type": "array", "items": {"type": "object"}}
             }
           },
-          "assets": {"type": "object"},
           "psl": {
             "type": "object",
             "required": ["slide_id", "content_type", "layout"]

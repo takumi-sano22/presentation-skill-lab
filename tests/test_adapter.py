@@ -53,9 +53,9 @@ class AdapterTests(unittest.TestCase):
             self.assertIn(kind, kinds)
 
     def test_values_stay_numeric(self):
-        chart = next(s for s in self.convert()["slides"] if s["variant"] == "chart")["chart"]
-        self.assertEqual(chart["series"][0]["values"], [20, 28, 36])
-        self.assertEqual(chart["options"]["valAxisTitle"], "単位: 件")
+        slide = next(s for s in self.convert()["slides"] if s["variant"] == "chart")
+        self.assertEqual(slide["chart"]["series"][0]["values"], [20, 28, 36])
+        self.assertEqual(slide["caption"], "単位: 件")
 
     def test_table_cells_and_note_visible(self):
         s004 = self.convert()["slides"][3]
@@ -84,18 +84,6 @@ class AdapterTests(unittest.TestCase):
         with self.assertRaises(adapter.ContentMismatch):
             adapter.verify_roundtrip(self.content, outline)
 
-    def test_asset_path_is_relative_to_outline(self):
-        with tempfile.TemporaryDirectory() as d:
-            base = Path(d) / "deck"
-            (base / "assets").mkdir(parents=True)
-            (base / "assets/fig.png").write_bytes(b"x")
-            c = copy.deepcopy(self.content)
-            c["slides"].append({"id": "s007", "type": "illustration", "title": "図", "takeaway": "", "asset_ref": "assets/fig.png"})
-            out_dir = Path(d) / "build/out"
-            outline = adapter.convert(c, self.design, base, out_dir)
-            image = outline["slides"][-1]["assets"]["image"]
-            self.assertEqual((out_dir / image).resolve(), (base / "assets/fig.png").resolve())
-
     def test_tampered_outline_fails(self):
         cases = {
             "表セル改変": lambda o: o["slides"][3]["table"]["rows"][0].__setitem__(1, "不可"),
@@ -106,7 +94,7 @@ class AdapterTests(unittest.TestCase):
             "audience欠落": lambda o: o["psl"]["metadata"].pop("audience"),
             "objective改変": lambda o: o["psl"]["metadata"].__setitem__("objective", "別の目的"),
             "デッキタイトル改変": lambda o: o.__setitem__("title", "別タイトル"),
-            "単位表示改変": lambda o: o["slides"][4]["chart"]["options"].__setitem__("valAxisTitle", "単位: 個"),
+            "単位表示改変": lambda o: o["slides"][4].__setitem__("caption", "単位: 個"),
             "注記表示欠落": lambda o: o["slides"][3].pop("footer"),
         }
         for name, tamper in cases.items():
@@ -137,7 +125,7 @@ class AdapterTests(unittest.TestCase):
             "グラフに本文": lambda c, d: c["slides"][4].__setitem__("body", ["補足"]),
             "表なしでtable layout": lambda c, d: d["overrides"].__setitem__("s002", {"layout": "table"}),
             "グラフなしでchart layout": lambda c, d: d["overrides"].__setitem__("s002", {"layout": "chart"}),
-            "画像なしでillustration": lambda c, d: d["overrides"].__setitem__("s002", {"layout": "illustration"}),
+            "illustration（#7まで未対応）": lambda c, d: d["overrides"].__setitem__("s002", {"layout": "illustration"}),
             "図を表layoutで": lambda c, d: c["slides"][3].__setitem__("diagram", c["slides"][2]["diagram"]),
             "図なしでdiagram_mode": lambda c, d: d["overrides"].__setitem__("s002", {"layout": "claim", "diagram_mode": "native"}),
             "円グラフ": lambda c, d: c["slides"][4]["chart"].__setitem__("type", "pie"),

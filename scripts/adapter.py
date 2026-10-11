@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import copy
 import json
 import math
-import os
 import sys
 from pathlib import Path
 
@@ -22,10 +22,14 @@ import validate  # noqa: E402  入力契約の検証を共有する
 ADAPTER_VERSION = "0.1.0"
 SUPPORTED_SCHEMA_VERSIONS = {"0.1"}
 
-# design.theme.name → 上流 style_preset（日本語テーマの本実装は #5）
-THEME_PRESETS = {
-    "technical-light": "editorial-minimal",
-    "technical-dark": "midnight-neon",
+# design.theme.name → 上流 deck_style（日本語テーマの本実装は #5）
+# - renderer_role_systems_v1: v1 レイアウトに固定し、v2 契約が足す英語ラベル・プレースホルダ
+#   （"TABLE INDEX" / "READOUT" / "Key readout" 等）を出さない（上流 B:1406 の互換ピン）
+# - footer_source_label: 出典ラベルを日本語にする
+_BASE_STYLE = {"renderer_role_systems_v1": {"pin": "v1"}, "footer_source_label": "出典"}
+THEME_STYLES = {
+    "technical-light": {"style_preset": "arctic-minimal", **_BASE_STYLE},
+    "technical-dark": {"style_preset": "midnight-neon", **_BASE_STYLE},
 }
 
 # content.slide.type → (上流 type, variant)。layout override があればそちらを優先。
@@ -41,7 +45,6 @@ TYPE_MAP = {
     "architecture": ("content", "standard"),
     "flow": ("content", "standard"),
     "er": ("content", "standard"),
-    "illustration": ("content", "image-sidebar"),
 }
 
 
@@ -53,11 +56,10 @@ VARIANT_FIELDS = {
     "standard": ({"body", "diagram", "notes", "source_refs"}, set()),
     "table": ({"table", "body", "notes", "source_refs"}, {"table"}),
     "chart": ({"chart", "notes", "source_refs"}, {"chart"}),
-    "image-sidebar": ({"asset_ref", "notes", "source_refs"}, {"asset_ref"}),
 }
 CONTENT_FIELDS = {"body", "diagram", "table", "chart", "asset_ref", "source_refs", "notes"}
-# 値軸がなく valAxisTitle では単位を表示できないグラフ種別
-CHART_TYPES_WITH_VALUE_AXIS = {"bar", "line"}
+# 描画を確認済みのグラフ種別（円グラフは単位表示・凡例の検証が未了のため #5 まで対象外）
+SUPPORTED_CHART_TYPES = {"bar", "line"}
 
 
 class UnsupportedContent(ValueError):
@@ -234,7 +236,7 @@ def outline_semantic_items(outline: dict) -> list[tuple[str, str, str]]:
                     add(f"table.{key}", meta[f"table_{key}"])
         if ch := s.get("chart"):
             add("chart.type", ch["type"])
-            if ch.get("options", {}).get("valAxisTitle") != chart_unit_title(meta["chart_unit"]):
+            if s.get("caption") != chart_unit_title(meta["chart_unit"]):
                 raise ContentMismatch(f"{sid}: グラフの単位表示が一致しません")
             add("chart.unit", meta["chart_unit"])
             for c in ch["categories"]:
@@ -272,7 +274,7 @@ def verify_roundtrip(content: dict, outline: dict) -> None:
 # 変換
 # ---------------------------------------------------------------------------
 
-def convert_slide(s: dict, override: dict, asset_base: Path, output_dir: Path) -> dict:
+def convert_slide(s: dict, override: dict) -> dict:
     sid = s["id"]
     # 上流へ写像先がない design 指定は、成功扱いで無視せず FAIL させる
     for key in ("asset_fit", "notes"):
@@ -280,6 +282,9 @@ def convert_slide(s: dict, override: dict, asset_base: Path, output_dir: Path) -
             raise UnsupportedContent(f"{sid}: design.overrides.{key} は未対応です（上流 v0.14.0 に写像先なし）")
     layout = override.get("layout", "auto")
     key = s["type"] if layout == "auto" else layout
+    if key == "illustration":
+        # 上流の image-sidebar は説明欄が空だと英語のプレースホルダを表示するため、#7 まで未対応
+        raise UnsupportedContent(f"{sid}: illustration（画像スライド）は #7 で対応予定のため未対応です")
     if key not in TYPE_MAP:
         raise UnsupportedContent(f"{sid}: layout '{key}' に対応する上流 variant がありません")
     up_type, variant = TYPE_MAP[key]
@@ -291,8 +296,8 @@ def convert_slide(s: dict, override: dict, asset_base: Path, output_dir: Path) -
         raise UnsupportedContent(f"{sid}: layout '{key}'（上流 {variant}）には {lacking} が必要です")
     if "diagram_mode" in override and not s.get("diagram"):
         raise UnsupportedContent(f"{sid}: 図のないスライドに diagram_mode が指定されています")
-    if s.get("chart") and s["chart"]["type"] not in CHART_TYPES_WITH_VALUE_AXIS:
-        raise UnsupportedContent(f"{sid}: chart.type '{s['chart']['type']}' は単位を表示できないため未対応（#5）")
+    if s.get("chart") and s["chart"]["type"] not in SUPPORTED_CHART_TYPES:
+        raise UnsupportedContent(f"{sid}: chart.type '{s['chart']['type']}' は描画検証が未了のため未対応（#5）")
     # psl: 上流レンダラは解釈しない追跡用メタデータ（安定ID・逆写像に必要な情報）
     meta: dict = {"slide_id": sid, "content_type": s["type"], "layout": layout}
     out: dict = {"type": up_type, "variant": variant, "title": s["title"], "psl": meta}
@@ -322,9 +327,9 @@ def convert_slide(s: dict, override: dict, asset_base: Path, output_dir: Path) -
             "type": ch["type"],
             "categories": list(ch["categories"]),
             "series": [{"name": se["name"], "values": list(se["values"])} for se in ch["series"]],
-            # 単位は値軸タイトルとして表示する（数値自体は変更しない）
-            "options": {"valAxisTitle": chart_unit_title(ch["unit"])},
         }
+        # 単位はグラフ注記（caption）で表示する。v1 レイアウトは値軸タイトルを描画しないため（数値自体は変更しない）
+        out["caption"] = chart_unit_title(ch["unit"])
         meta["chart_unit"] = ch["unit"]
 
     if d := s.get("diagram"):
@@ -334,13 +339,6 @@ def convert_slide(s: dict, override: dict, asset_base: Path, output_dir: Path) -
         meta["diagram"] = d
         meta["fallback"] = "diagram-as-text"
         bullets += diagram_lines(d)
-
-    if s.get("asset_ref"):
-        if variant != "image-sidebar":
-            raise UnsupportedContent(f"{sid}: asset_ref を layout '{key}' では配置できません（#7）")
-        # 上流は outline のディレクトリ基準でパスを解決するため、出力先からの相対パスへ変換する
-        out["assets"] = {"image": os.path.relpath(asset_base / s["asset_ref"], output_dir)}
-        meta["asset_ref"] = s["asset_ref"]
 
     if variant == "table" and bullets:
         # 上流の表描画は bullets を表示しないため、本文は表の脚注（可視）として渡す
@@ -373,8 +371,7 @@ def convert_slide(s: dict, override: dict, asset_base: Path, output_dir: Path) -
     return out
 
 
-def convert(content: dict, design: dict, asset_base: Path = Path("."), output_dir: Path = Path(".")) -> dict:
-    """asset_base: content.yaml のディレクトリ、output_dir: outline.json の出力先ディレクトリ。"""
+def convert(content: dict, design: dict) -> dict:
     if content.get("schema_version") not in SUPPORTED_SCHEMA_VERSIONS:
         raise UnsupportedContent(f"schema_version {content.get('schema_version')} は未対応")
     overrides = design.get("overrides", {})
@@ -382,7 +379,7 @@ def convert(content: dict, design: dict, asset_base: Path = Path("."), output_di
     meta = content["metadata"]
     outline = {
         "title": meta["title"],
-        "deck_style": {"style_preset": THEME_PRESETS[theme["name"]]},
+        "deck_style": copy.deepcopy(THEME_STYLES[theme["name"]]),
         "document_metadata": {"author": "presentation-skill-lab"},
         "psl": {
             "adapter_version": ADAPTER_VERSION,
@@ -395,8 +392,7 @@ def convert(content: dict, design: dict, asset_base: Path = Path("."), output_di
             "metadata": meta,
             "theme": theme,
         },
-        "slides": [convert_slide(s, overrides.get(s["id"], {}), asset_base.resolve(), output_dir.resolve())
-                   for s in content["slides"]],
+        "slides": [convert_slide(s, overrides.get(s["id"], {})) for s in content["slides"]],
     }
     # 上流 v0.14.0 に写像先がなく未適用の design 指定を明示する（黙って無視しない。適用は #5）
     unapplied = ["theme.fonts", "theme.colors"]
@@ -424,7 +420,7 @@ def main() -> int:
     a = p.parse_args()
     try:
         content, design = load_and_validate(a.content, a.design)
-        text = canonical_json(convert(content, design, a.content.parent, a.output.parent))
+        text = canonical_json(convert(content, design))
         # 書き込み失敗（権限・既存ディレクトリ・容量不足）も入力エラーと同じ FAIL 応答にする
         a.output.parent.mkdir(parents=True, exist_ok=True)
         a.output.write_text(text, encoding="utf-8")
