@@ -140,13 +140,13 @@ def pptx_units(pptx: Path) -> list[list[str]]:
         units = []
         for n in slide_part_names(z):
             xml = z.read(n).decode("utf-8")
-            paras = ["".join(re.findall(r"<a:t>([^<]*)</a:t>", p)) for p in re.findall(r"<a:p>.*?</a:p>|<a:p .*?</a:p>", xml, re.S)]
+            paras = ["".join(re.findall(r"<a:t(?:\s[^>]*)?>([^<]*)</a:t>", p)) for p in re.findall(r"<a:p>.*?</a:p>|<a:p .*?</a:p>", xml, re.S)]
             rels_name = n.replace("slides/", "slides/_rels/") + ".rels"
             rels = z.read(rels_name).decode("utf-8") if rels_name in z.namelist() else ""
             values = []
             # 上流は絶対パス（/ppt/charts/）で参照するため、相対・絶対の両方を受ける
             for target in re.findall(r'Target="(?:\.\./|/ppt/)charts/(chart\d+\.xml)"', rels):
-                values += re.findall(r"<c:v>([^<]*)</c:v>", z.read(f"ppt/charts/{target}").decode("utf-8"))
+                values += re.findall(r"<c:v(?:\s[^>]*)?>([^<]*)</c:v>", z.read(f"ppt/charts/{target}").decode("utf-8"))
             units.append([html.unescape(u) for u in paras + values if u])
     return units
 

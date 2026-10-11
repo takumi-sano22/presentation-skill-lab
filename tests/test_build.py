@@ -76,6 +76,14 @@ class BuildCheckTests(unittest.TestCase):
         pptx = fake_pptx(self.dir / "e.pptx", [["検査件数"]], ["系列", "A", "1"])
         self.assertIn("s1: 「単位: 件」", build.check_content_in_pptx(self.one_slide(slide), pptx))
 
+    def test_text_elements_with_attributes_are_read(self):
+        # 前後に空白を含む文言は <a:t xml:space="preserve"> になる
+        slide = {"id": "s1", "title": "タイトル", "takeaway": ""}
+        path = self.dir / "k.pptx"
+        with zipfile.ZipFile(path, "w") as z:
+            z.writestr("ppt/slides/slide1.xml", '<p:sld><a:p><a:r><a:t xml:space="preserve">タイトル</a:t></a:r></a:p></p:sld>')
+        self.assertEqual(build.check_content_in_pptx(self.one_slide(slide), path), [])
+
     def test_short_value_is_not_matched_by_substring(self):
         # 「1」が欠落しても「10」に部分一致して PASS してはならない
         slide = {"id": "s1", "title": "表", "takeaway": "",
