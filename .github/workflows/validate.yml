@@ -39,3 +39,15 @@ jobs:
         run: scripts/dev.sh run python3 scripts/doctor.py
       - name: Tests in toolchain image
         run: scripts/dev.sh run python3 -m unittest discover -s tests -v
+      - name: Build sample deck (PPTX / PDF / PNG / gallery)
+        run: >-
+          scripts/build
+          --content examples/technical-architecture/content.yaml
+          --design examples/technical-architecture/design.yaml
+          --out build/sample-cloud-architecture
+      - name: Upload sample deck
+        uses: actions/upload-artifact@v4
+        with:
+          name: sample-cloud-architecture
+          path: build/sample-cloud-architecture
+          retention-days: 14

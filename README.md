@@ -2,7 +2,7 @@
 
 Claude Code と ChatGPT の双方から、**中身とデザインを分離**して技術系スライドを生成するためのスキル開発リポジトリ。
 
-> **状態: Phase 1 着手中。** 上流レンダラ（`vendor/presentation-skill` v0.14.0）の固定と描画環境の doctor まで実装済みです。`content.yaml`/`design.yaml` → `outline.json` の adapter（`scripts/adapter.py`）は実装済み、PPTX/PDF/PNG のビルド CLI は**未実装**です。`scripts/validate.py` は共通データ契約と参照の検査のみです。
+> **状態: Phase 1 着手中。** 上流レンダラ（`vendor/presentation-skill` v0.14.0）の固定と描画環境の doctor まで実装済みです。`content.yaml`/`design.yaml` → `outline.json` の adapter と、PPTX/PDF/PNG/静的プレビューを出す共通ビルド CLI（`scripts/build`）まで実装済みです。日本語テーマ（#5）・ネイティブ図（#6）は**未実装**です。`scripts/validate.py` は共通データ契約と参照の検査のみです。
 
 ## 確定事項
 
@@ -94,6 +94,22 @@ python3 scripts/adapter.py \
 - 上流 v0.14.0 に写像先がない design 指定（`theme.fonts`・`theme.colors`・`density`）は `psl.unapplied_design` に列挙し WARN を出す（適用は #5）。
 - 出力は正規化 JSON（キー順固定）で、同一入力なら `outline_sha256` が一致する。出力の形は `schemas/outline-adapter.schema.json`、スキーマ変更手順は [`docs/schema-versioning.md`](docs/schema-versioning.md)。
 - `outline.json` は生成物。編集しても次回変換で失われる。
+
+## 共通ビルド（PPTX / PDF / PNG / 静的プレビュー）
+
+```bash
+scripts/build \
+  --content examples/technical-architecture/content.yaml \
+  --design examples/technical-architecture/design.yaml
+# → build/<deck_id>/ に outline.json, deck.pptx, deck.pdf, png/NN-<slide_id>.png, index.html, manifest.json
+```
+
+- Claude Code / ChatGPT / 人のいずれも同じコマンドで同じ資料を作る入口。上流レンダラ・LibreOffice は Docker イメージ内で実行する（`scripts/dev.sh build` が必要）。
+- 手順: adapter（往復検査）→ 固定上流レンダラ（`psl.render.style_preset`）→ LibreOffice で PDF → pdftoppm で PNG（110 dpi）→ 静的ギャラリー `index.html`。
+- 検査（FAIL で終了コード 1）: PDF ページ数＝スライド数、**PPTX 実体のテキスト／グラフ XML に全内容文字列が存在**、PDF 抽出テキストに内容文字列が存在（グラフ以外）、PDF フォントがすべて埋め込み済みで日本語フォントを含み Type 3 がない。
+- 警告（manifest `checks.non_content_text`）: content 由来でない文言（レンダラの装飾ラベル等）。
+- `manifest.json` に入力 hash（content/design）、adapter 版、上流 tag/commit・プリセット、Node/LibreOffice/poppler の版、PDF の埋め込みフォント、全成果物の sha256、フォールバック（例: 図のテキスト表示）を記録。
+- **PASS は内容保持と描画環境の検査結果であり、デザイン品質の保証ではありません。** 全ページの PNG を目視確認してください。CI では生成物を Actions の artifact として保存します。
 
 ## WSL でのセットアップ（入力検証のみ）
 
