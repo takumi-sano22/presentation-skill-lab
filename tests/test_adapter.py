@@ -163,6 +163,11 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual(s004["table"]["footnotes"], ["比較は概念上のもの"])
         self.assertNotIn("bullets", s004)
 
+    def test_unapplied_design_is_explicit(self):
+        unapplied = self.convert()["psl"]["unapplied_design"]
+        self.assertIn("theme.fonts", unapplied)
+        self.assertIn("overrides.s001.density", unapplied)
+
     def test_number_format_is_stable(self):
         self.assertEqual(adapter.format_number(20), adapter.format_number(20.0))
         self.assertEqual(adapter.format_number(0.1), "0.1")

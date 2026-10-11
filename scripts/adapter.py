@@ -149,6 +149,7 @@ def semantic_items(content: dict) -> list[tuple[str, str, str]]:
     for s in content["slides"]:
         sid = s["id"]
         add = lambda kind, value: items.append((sid, kind, value))  # noqa: E731
+        add("type", s["type"])
         add("title", s["title"])
         if s.get("takeaway"):
             add("takeaway", s["takeaway"])
@@ -194,6 +195,7 @@ def outline_semantic_items(outline: dict) -> list[tuple[str, str, str]]:
         meta = s["psl"]
         sid = meta["slide_id"]
         add = lambda kind, value: items.append((sid, kind, value))  # noqa: E731
+        add("type", meta["content_type"])
         add("title", s["title"])
         if s.get("subtitle"):
             add("takeaway", s["subtitle"])
@@ -393,6 +395,10 @@ def convert(content: dict, design: dict, asset_base: Path = Path("."), output_di
         "slides": [convert_slide(s, overrides.get(s["id"], {}), asset_base.resolve(), output_dir.resolve())
                    for s in content["slides"]],
     }
+    # 上流 v0.14.0 に写像先がなく未適用の design 指定を明示する（黙って無視しない。適用は #5）
+    unapplied = ["theme.fonts", "theme.colors"]
+    unapplied += [f"overrides.{s['psl']['slide_id']}.density" for s in outline["slides"] if s["psl"].get("density")]
+    outline["psl"]["unapplied_design"] = unapplied
     verify_roundtrip(content, outline)
     return outline
 
@@ -421,6 +427,9 @@ def main() -> int:
         return 1
     a.output.parent.mkdir(parents=True, exist_ok=True)
     a.output.write_text(text, encoding="utf-8")
+    unapplied = json.loads(text)["psl"]["unapplied_design"]
+    if unapplied:
+        print(f"WARN: 上流レンダラ未対応のため未適用の design 指定: {', '.join(unapplied)}", file=sys.stderr)
     print(f"PASS: {len(content['slides'])} スライドを変換 → {a.output}")
     print(f"outline_sha256: {sha256_text(text)}")
     return 0

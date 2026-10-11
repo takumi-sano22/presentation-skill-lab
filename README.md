@@ -91,6 +91,7 @@ python3 scripts/adapter.py \
 
 - 文言・数値・単位・表セル・図ラベル・出典・注記を意味項目として抽出し、変換後の outline.json から逆写像した項目と**順序込みで完全一致**しなければ FAIL（`ContentMismatch`）。
 - 写像できない内容は FAIL（`UnsupportedContent`）。黙って捨てたり画像化しない。図は #6 までテキスト行（`A → B（ラベル）`）へ明示的にフォールバックし、`psl.fallback` に記録する。
+- 上流 v0.14.0 に写像先がない design 指定（`theme.fonts`・`theme.colors`・`density`）は `psl.unapplied_design` に列挙し WARN を出す（適用は #5）。
 - 出力は正規化 JSON（キー順固定）で、同一入力なら `outline_sha256` が一致する。出力の形は `schemas/outline-adapter.schema.json`、スキーマ変更手順は [`docs/schema-versioning.md`](docs/schema-versioning.md)。
 - `outline.json` は生成物。編集しても次回変換で失われる。
 
