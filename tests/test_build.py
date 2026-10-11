@@ -108,6 +108,14 @@ class BuildCheckTests(unittest.TestCase):
         self.assertEqual(r.returncode, 1)
         self.assertNotIn("Traceback", r.stderr)
 
+    @unittest.skipIf(os.environ.get("PPTX_NODE_MODULES"), "イメージ内ではラッパーが直接実行するため対象外")
+    def test_wrapper_rejects_paths_outside_repo(self):
+        # コンテナにはリポジトリしかマウントしないため、外部パスは Docker 起動前に明示的に拒否する
+        r = subprocess.run([str(ROOT / "scripts/build"), "--content", "/tmp/psl-outside.yaml", "--design", str(DESIGN)],
+                           capture_output=True, text=True)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("リポジトリ外", r.stderr)
+
     def test_missing_command_is_build_error(self):
         with self.assertRaises(build.BuildError):
             build.run(["psl-no-such-command-xyz"])

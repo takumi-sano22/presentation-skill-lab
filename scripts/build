@@ -7,4 +7,30 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 if [ -n "${PPTX_NODE_MODULES:-}" ]; then
   exec python3 "$ROOT/scripts/build.py" "$@"
 fi
-exec "$ROOT/scripts/dev.sh" run python3 scripts/build.py "$@"
+
+# コンテナはリポジトリルートを作業ディレクトリにするため、パス引数を呼び出し元基準の絶対パスへ直す。
+# コンテナにはリポジトリしかマウントしないので、リポジトリ外のパスは明示的に拒否する。
+to_repo_path() {
+  local abs
+  abs="$(realpath -m -- "$1")"
+  case "$abs" in
+    "$ROOT"|"$ROOT"/*) printf '%s' "$abs" ;;
+    *) echo "FAIL: リポジトリ外のパスは扱えません（Docker にマウントされません）: $1" >&2; exit 2 ;;
+  esac
+}
+
+args=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --content|--design|--out)
+      [ $# -ge 2 ] || { echo "FAIL: $1 に値がありません" >&2; exit 2; }
+      path="$(to_repo_path "$2")"
+      args+=("$1" "$path"); shift 2 ;;
+    --content=*|--design=*|--out=*)
+      path="$(to_repo_path "${1#*=}")"
+      args+=("${1%%=*}" "$path"); shift ;;
+    *)
+      args+=("$1"); shift ;;
+  esac
+done
+exec "$ROOT/scripts/dev.sh" run python3 scripts/build.py "${args[@]}"
