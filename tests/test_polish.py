@@ -226,6 +226,17 @@ class BuiltDeckTests(unittest.TestCase):
         # SQL 列の本文3セル × （文字の rPr と段落末の endParaRPr）
         self.assertEqual(xml.count('<a:latin typeface="Consolas"'), 6)
 
+    def test_diagram_labels_use_explicit_line_breaks(self):
+        # 改行位置は a:br（pptxgenjs 4.0.1 の softBreakBefore）で PPTX に入り、段落は1つのまま
+        out, _ = self.build("bench-architecture")
+        with zipfile.ZipFile(out / "deck.pptx") as z:
+            xml = z.read("ppt/slides/slide3.xml").decode("utf-8")
+        for name, lines in (("node:authz", ["行レベル", "認可"]), ("edge-label:2:lake:wh", ["日次", "ロード"])):
+            block = re.search(rf'name="{re.escape(name)}".*?</p:sp>', xml, re.S).group(0)
+            self.assertEqual(block.count("<a:br"), 1, name)
+            self.assertEqual(re.findall(r"<a:t>([^<]*)</a:t>", block), lines)
+            self.assertEqual(block.count("<a:p>") + block.count("<a:p "), 1, name)
+
     def test_single_series_chart_is_one_color(self):
         out, m = self.build("bench-table-chart")
         self.assertIn("chart-single-series", {p["fix"] for p in m["polish"]})
