@@ -100,6 +100,16 @@ class BuildCheckTests(unittest.TestCase):
         self.assertEqual([p.read_text() for p in named], [str(i) for i in range(1, 12)])
         self.assertEqual(named[9].name, "10-s10.png")
 
+    def test_pdf_does_not_reuse_one_occurrence_for_atom_and_text(self):
+        # タイトルと表セルがともに「A」のとき、PDF に「A」が1回しかなければ欠落とする
+        from unittest import mock
+        content = {"slides": [{"id": "s1", "title": "A", "takeaway": "",
+                               "table": {"headers": ["h1", "h2"], "rows": [["A", "B"]]}}]}
+        with mock.patch.object(build, "pdf_page_texts", lambda pdf, pages: ["A\nh1\nh2\nB\n"]):
+            self.assertEqual(build.check_content_in_pdf(content, Path("x.pdf"), 1), ["s1: 「A」"])
+        with mock.patch.object(build, "pdf_page_texts", lambda pdf, pages: ["A\nh1\nh2\nA\nB\n"]):
+            self.assertEqual(build.check_content_in_pdf(content, Path("x.pdf"), 1), [])
+
     def test_short_value_is_not_matched_by_substring(self):
         # 「1」が欠落しても「10」に部分一致して PASS してはならない
         slide = {"id": "s1", "title": "表", "takeaway": "",

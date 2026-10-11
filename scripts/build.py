@@ -248,10 +248,16 @@ def check_content_in_pdf(content: dict, pdf: Path, pages: int) -> list[str]:
             chart_atoms = set(ch["categories"]) | {se["name"] for se in ch["series"]}
             chart_atoms |= {adapter.format_number(v) for se in ch["series"] for v in se["values"]}
             atoms = [a for a in atoms if a not in chart_atoms]
-        lines = [ln for ln in text.splitlines() if ln.strip()]
-        # 文章はページ全体を1単位として消費し、原子値は残りの行と完全一致させる
+        lines = [normalize(ln) for ln in text.splitlines() if ln.strip()]
+        # 1回の消費型照合: 原子値を行との完全一致で先に消費し、残った行を連結した文字列から文章を消費する
+        # （同じ文字列を原子値と文章の両方に再利用しない。文章は折返しで複数行にまたがってよい）
+        for a in atoms:
+            n = normalize(a)
+            if n in lines:
+                lines.remove(n)
+            else:
+                missing.append(f"{slide['id']}: 「{a}」")
         missing += [f"{slide['id']}: 「{m}」" for m in match_items([], texts, ["".join(lines)])]
-        missing += [f"{slide['id']}: 「{m}」" for m in match_items(atoms, [], lines)]
     return missing
 
 
