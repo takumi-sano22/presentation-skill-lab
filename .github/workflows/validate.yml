@@ -18,7 +18,13 @@ jobs:
           --content examples/technical-architecture/content.yaml
           --design examples/technical-architecture/design.yaml
           --public-repo-check
-      - name: Test validator regressions
+      - name: Convert example to outline.json (adapter)
+        run: >-
+          python scripts/adapter.py
+          --content examples/technical-architecture/content.yaml
+          --design examples/technical-architecture/design.yaml
+          --output build/outline.json
+      - name: Test validator / adapter regressions
         run: python -m unittest discover -s tests -v
   toolchain:
     # 上流固定・描画ツールチェーンを Docker イメージ内で検査する（ローカルの scripts/dev.sh と同一経路）
