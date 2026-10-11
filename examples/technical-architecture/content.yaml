@@ -1,0 +1,84 @@
+schema_version: '0.1'
+deck_id: sample-cloud-architecture
+metadata:
+  title: 架空のデータ基盤におけるアクセス制御
+  audience: アーキテクト・実装担当
+  objective: データ経路と制御境界を合意する
+  language: ja-JP
+  classification: public
+  synthetic: true
+  content_locked: true
+slides:
+  - id: s001
+    type: cover
+    title: データ基盤の認可境界を明示する
+    takeaway: すべて架空の構成・データです
+    body:
+      - 開発検証用の合成資料
+  - id: s002
+    type: claim
+    title: データ取得に先立ち統合認可を必須化する
+    takeaway: 入口で認可した結果をすべての取得ツールへ渡す
+    body:
+      - 複数データソースの認可ルールを共通ポリシーへ変換する
+      - ツールは許可条件がない要求を拒否する
+  - id: s003
+    type: architecture
+    title: 認可と検索の経路は分離して実行する
+    takeaway: 許可を受けた Tool だけが検索対象にアクセスする
+    diagram:
+      nodes:
+        - id: user
+          label: 利用者
+          kind: actor
+        - id: policy
+          label: 統合認可
+          kind: policy
+        - id: agent
+          label: オーケストレータ
+          kind: compute
+        - id: tool
+          label: Query Tool
+          kind: tool
+        - id: db
+          label: 分析DB（架空）
+          kind: datastore
+      edges:
+        - {from: user, to: agent, label: 質問, kind: data}
+        - {from: agent, to: policy, label: 認可照会, kind: control}
+        - {from: policy, to: tool, label: 認可済み条件, kind: control}
+        - {from: agent, to: tool, label: 実行指示, kind: control}
+        - {from: tool, to: db, label: フィルタ付き取得, kind: data}
+    source_refs:
+      - 合成データ・架空の設計例
+  - id: s004
+    type: comparison
+    title: 事前認可方式は取得範囲を確定できる
+    takeaway: 後段フィルタのみでは取得自体の制御にならない
+    table:
+      headers: [評価観点, 事前認可, 取得後フィルタ]
+      rows:
+        - [取得時の制御, 可能, 不可]
+        - [権限ログ, 集約しやすい, 分散しやすい]
+        - [故障時の既定動作, 拒否, 実装次第]
+    notes: 実装特性を説明するための概念比較であり、実測値ではない
+  - id: s005
+    type: chart
+    title: 条件追加によって検査件数は増加する
+    takeaway: 概念確認用の架空データであって実績値ではない
+    chart:
+      type: bar
+      categories: [基本, 認可追加, 監査追加]
+      series:
+        - name: サンプル検査件数
+          values: [20, 28, 36]
+      unit: 件
+    source_refs:
+      - 合成データ・実環境から取得した値ではない
+  - id: s006
+    type: appendix
+    title: 判定できない要求は安全側に倒す
+    takeaway: 認可失敗時は実行せず、入力の再確認へ進む
+    body:
+      - データアクセスに先立つ認可が不明なときは拒否する
+      - 機械的に追跡可能なログを保持する
