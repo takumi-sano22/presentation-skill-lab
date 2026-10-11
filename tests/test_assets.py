@@ -42,6 +42,9 @@ def make_jpeg_header(width: int, height: int, components: int) -> bytes:
 
 class AssetCheckTests(unittest.TestCase):
     def setUp(self):
+        # サブテストごとに setUp を呼び直すため、前の一時ディレクトリを片付ける
+        if getattr(self, "tmp", None):
+            self.tmp.cleanup()
         self.tmp = tempfile.TemporaryDirectory()
         self.deck = Path(self.tmp.name) / "deck"
         shutil.copytree(DECK, self.deck)
@@ -143,7 +146,7 @@ class AssetCheckTests(unittest.TestCase):
                '<clipPath id="c"><rect width="9" height="9"/></clipPath></defs>'
                '<rect style="fill: url(\'#g\')" clip-path="url(&quot;#c&quot;)" width="10" height="10"/>'
                '<rect style="fill:url(#g)" width="5" height="5"/></svg>')
-        self.add("ok.svg", svg.encode(), media_type="image/svg+xml", width=1600, height=900)
+        self.add("ok.svg", svg.encode(), media_type="image/svg+xml", width=1600, height=900, transparent=True)
         self.assertEqual(self.errors(), [])
         self.setUp()
         bad = '<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900"><rect style="fill:url(\'https://x/a.svg#g\')"/></svg>'
@@ -170,6 +173,15 @@ class AssetCheckTests(unittest.TestCase):
                 b'<rect width="100%" height="100%" fill="#fff" fill-opacity="0.5"/></svg>')
         self.add("half.svg", half, media_type="image/svg+xml", width=1600, height=900, transparent=False)
         self.assertError("透過")
+
+    def test_paths_outside_assets_are_rejected(self):
+        (self.deck / "outside.png").write_bytes(make_png(1600, 900))
+        self.manifest["assets"].append({"path": "assets/../outside.png", "sha256": "0" * 64, "media_type": "image/png",
+                                        "width": 1600, "height": 900, "transparent": False, "alt": "x",
+                                        "contains_text": False, "license": "MIT", "updated": "2026-10-11",
+                                        "origin": {"type": "authored", "author": "x"}})
+        self.save()
+        self.assertTrue(any("manifest.yaml" in e for e in self.errors()))
 
     def test_truncated_jpeg_is_reported_not_crashed(self):
         self.add("cut.jpg", make_jpeg_header(1600, 900, 3)[:9], media_type="image/jpeg", width=1600, height=900)
@@ -227,7 +239,8 @@ class IllustrationAdapterTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             deck = Path(d) / "deck"
             shutil.copytree(DECK, deck)
-            new_svg = b'<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900"><circle cx="800" cy="450" r="300"/></svg>'
+            new_svg = (b'<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900">'
+                       b'<rect width="1600" height="900" fill="#ffffff"/><circle cx="800" cy="450" r="300"/></svg>')
             (deck / "assets/boundary-illustration.svg").write_bytes(new_svg)
             manifest = yaml.safe_load((deck / assets.MANIFEST).read_text(encoding="utf-8"))
             manifest["assets"][0]["sha256"] = hashlib.sha256(new_svg).hexdigest()

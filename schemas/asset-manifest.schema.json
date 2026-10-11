@@ -14,7 +14,7 @@
         "additionalProperties": false,
         "required": ["path", "sha256", "media_type", "width", "height", "transparent", "alt", "contains_text", "origin", "license", "updated"],
         "properties": {
-          "path": {"type": "string", "pattern": "^assets/[a-zA-Z0-9_./-]+\\.(svg|png|jpg|jpeg)$"},
+          "path": {"type": "string", "pattern": "^assets/(?!.*\\.\\.)[a-zA-Z0-9_./-]+\\.(svg|png|jpg|jpeg)$"},
           "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
           "media_type": {"enum": ["image/svg+xml", "image/png", "image/jpeg"]},
           "width": {"type": "integer", "minimum": 1},
@@ -31,9 +31,9 @@
               "type": {"enum": ["authored", "generated", "third_party"]},
               "author": {"type": "string"},
               "tool": {"type": "string"},
-              "prompt_file": {"type": "string", "pattern": "^assets/[a-zA-Z0-9_./-]+$"},
+              "prompt_file": {"type": "string", "pattern": "^assets/(?!.*\\.\\.)[a-zA-Z0-9_./-]+$"},
               "asset_id": {"type": "string"},
-              "source_file": {"type": "string", "pattern": "^assets/[a-zA-Z0-9_./-]+$"},
+              "source_file": {"type": "string", "pattern": "^assets/(?!.*\\.\\.)[a-zA-Z0-9_./-]+$"},
               "conversion": {"type": "string"},
               "source_url": {"type": "string", "pattern": "^https://"}
             }
