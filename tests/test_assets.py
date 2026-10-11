@@ -158,6 +158,19 @@ class AssetCheckTests(unittest.TestCase):
                 self.add(f"p{i}.svg", svg.encode(), media_type="image/svg+xml", width=1600, height=900)
                 self.assertError("外部参照")
 
+    def test_svg_transparency_is_judged_from_content(self):
+        no_bg = b'<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900"><circle cx="5" cy="5" r="4"/></svg>'
+        self.add("nobg.svg", no_bg, media_type="image/svg+xml", width=1600, height=900, transparent=False)
+        self.assertError("透過")
+        self.setUp()
+        self.add("nobg2.svg", no_bg, media_type="image/svg+xml", width=1600, height=900, transparent=True)
+        self.assertEqual(self.errors(), [])
+        self.setUp()
+        half = (b'<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900">'
+                b'<rect width="100%" height="100%" fill="#fff" fill-opacity="0.5"/></svg>')
+        self.add("half.svg", half, media_type="image/svg+xml", width=1600, height=900, transparent=False)
+        self.assertError("透過")
+
     def test_truncated_jpeg_is_reported_not_crashed(self):
         self.add("cut.jpg", make_jpeg_header(1600, 900, 3)[:9], media_type="image/jpeg", width=1600, height=900)
         self.assertError("解析できません")

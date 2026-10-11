@@ -86,6 +86,33 @@ def svg_info(data: bytes) -> tuple[int, int, ET.Element]:
     return round(w), round(h), root
 
 
+def svg_has_opaque_background(root: ET.Element, width: int, height: int) -> bool:
+    """最初に描かれる図形が全面を覆う不透明な矩形なら背景あり（透過なし）とみなす。
+
+    SVG の透過は描画結果でしか厳密に決まらないため、背景矩形の有無で判定する（docs/assets.md）。
+    """
+    for el in root:
+        tag = el.tag.replace(SVG_NS, "")
+        if tag in ("defs", "title", "desc", "metadata", "style"):
+            continue
+        if tag != "rect":
+            return False
+        def num(key: str, default: str) -> str:
+            return el.get(key, default).strip()
+        full_w = num("width", "0") in ("100%", str(width)) or num("width", "0").replace(".0", "") == str(width)
+        full_h = num("height", "0") in ("100%", str(height)) or num("height", "0").replace(".0", "") == str(height)
+        at_origin = float(re.sub(r"[a-z%]+$", "", num("x", "0")) or 0) == 0 and float(re.sub(r"[a-z%]+$", "", num("y", "0")) or 0) == 0
+        style = el.get("style", "")
+        fill = el.get("fill", "black")
+        m = re.search(r"fill\s*:\s*([^;]+)", style)
+        fill = (m.group(1) if m else fill).strip().lower()
+        opacities = [el.get(k) for k in ("opacity", "fill-opacity")] + re.findall(r"(?:^|;)\s*(?:fill-)?opacity\s*:\s*([0-9.]+)", style)
+        translucent = any(v is not None and float(v) < 1 for v in opacities)
+        opaque_fill = fill not in ("none", "transparent") and not fill.startswith(("rgba", "hsla"))
+        return full_w and full_h and at_origin and opaque_fill and not translucent
+    return False
+
+
 def check_svg(root: ET.Element, entry: dict) -> list[str]:
     errors = []
     text_nodes = [el for el in root.iter() if el.tag in (f"{SVG_NS}text", "text")]
@@ -145,7 +172,7 @@ def check_entry(deck_dir: Path, entry: dict) -> list[str]:
         if entry["media_type"] == "image/svg+xml":
             width, height, root = svg_info(data)
             errors += [f"{tag}: {e}" for e in check_svg(root, entry)]
-            alpha, color = entry["transparent"], "rgb"
+            alpha, color = not svg_has_opaque_background(root, width, height), "rgb"
         elif entry["media_type"] == "image/png":
             width, height, alpha, color = png_info(data)
         else:
