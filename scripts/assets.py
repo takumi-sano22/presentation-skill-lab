@@ -14,6 +14,7 @@ import re
 import struct
 import sys
 import xml.etree.ElementTree as ET
+import zlib
 from pathlib import Path
 
 import yaml
@@ -50,12 +51,47 @@ def load_manifest(deck_dir: Path) -> dict:
 
 
 def png_info(data: bytes) -> tuple[int, int, bool, str]:
-    """(幅, 高さ, 透過あり, 色) — IHDR の色タイプと tRNS チャンクで透過を判定する。"""
+    """(幅, 高さ, 透過あり, 色)。署名だけでなくチャンク構造・CRC・IDAT の展開サイズまで検証する。
+
+    透過は IHDR の色タイプ（4/6）または tRNS チャンクで判定する。
+    """
     if data[:8] != b"\x89PNG\r\n\x1a\n":
         raise AssetError("PNG の署名がありません")
-    width, height, _, color_type = struct.unpack(">IIBB", data[16:26])
-    alpha = color_type in (4, 6) or b"tRNS" in data[:data.find(b"IDAT")]
-    color = {0: "gray", 2: "rgb", 3: "indexed", 4: "gray", 6: "rgb"}.get(color_type, "unknown")
+    pos, chunks = 8, []
+    while pos < len(data):
+        if pos + 12 > len(data):
+            raise AssetError("PNG のチャンクが途中で切れています")
+        length = struct.unpack(">I", data[pos:pos + 4])[0]
+        kind = data[pos + 4:pos + 8]
+        body = data[pos + 8:pos + 8 + length]
+        if len(body) != length or pos + 12 + length > len(data):
+            raise AssetError(f"PNG の {kind!r} チャンクが途中で切れています")
+        crc = struct.unpack(">I", data[pos + 8 + length:pos + 12 + length])[0]
+        if zlib.crc32(kind + body) != crc:
+            raise AssetError(f"PNG の {kind!r} チャンクの CRC が一致しません")
+        chunks.append((kind, body))
+        pos += 12 + length
+        if kind == b"IEND":
+            break
+    if not chunks or chunks[0][0] != b"IHDR" or len(chunks[0][1]) != 13:
+        raise AssetError("PNG の先頭が IHDR ではありません")
+    if chunks[-1][0] != b"IEND" or pos != len(data):
+        raise AssetError("PNG が IEND で終わっていません")
+    width, height, depth, color_type, _, _, interlace = struct.unpack(">IIBBBBB", chunks[0][1])
+    idat = b"".join(body for kind, body in chunks if kind == b"IDAT")
+    if not idat:
+        raise AssetError("PNG に画素データ（IDAT）がありません")
+    try:
+        raw = zlib.decompress(idat)
+    except zlib.error as exc:
+        raise AssetError(f"PNG の画素データを展開できません（{exc}）") from exc
+    channels = {0: 1, 2: 3, 3: 1, 4: 2, 6: 4}.get(color_type)
+    if channels is None:
+        raise AssetError(f"PNG の色タイプ {color_type} は不正です")
+    if interlace == 0 and len(raw) != height * (1 + (width * channels * depth + 7) // 8):
+        raise AssetError("PNG の画素データの大きさが寸法と一致しません")
+    alpha = color_type in (4, 6) or any(kind == b"tRNS" for kind, _ in chunks)
+    color = {0: "gray", 2: "rgb", 3: "indexed", 4: "gray", 6: "rgb"}[color_type]
     return width, height, alpha, color
 
 
@@ -76,13 +112,27 @@ def jpeg_info(data: bytes) -> tuple[int, int, bool, str]:
     raise AssetError("JPEG の寸法を読めません")
 
 
+# SVG の長さ単位 → px（CSS の 96dpi 基準）
+SVG_UNITS = {"": 1.0, "px": 1.0, "pt": 96 / 72, "pc": 16.0, "in": 96.0, "cm": 96 / 2.54, "mm": 96 / 25.4}
+
+
+def svg_length(value: str | None) -> float | None:
+    m = re.fullmatch(r"\s*([0-9.]+)\s*([a-z]*)\s*", value or "")
+    if not m or m.group(2) not in SVG_UNITS:
+        return None  # 未指定・% 等は固有サイズにならない
+    return float(m.group(1)) * SVG_UNITS[m.group(2)]
+
+
 def svg_info(data: bytes) -> tuple[int, int, ET.Element]:
+    """固有サイズ（px）。Office と同じく width/height を優先し、無い・% のときだけ viewBox を使う。"""
     root = ET.fromstring(data)
-    view_box = root.get("viewBox")
-    if view_box:
-        _, _, w, h = (float(v) for v in re.split(r"[\s,]+", view_box.strip()))
-    else:
-        w, h = (float(re.sub(r"[a-z%]+$", "", root.get(k, "0"))) for k in ("width", "height"))
+    w, h = svg_length(root.get("width")), svg_length(root.get("height"))
+    if w is None or h is None:
+        view_box = root.get("viewBox")
+        if not view_box:
+            raise AssetError("SVG に width/height も viewBox もありません")
+        _, _, vw, vh = (float(v) for v in re.split(r"[\s,]+", view_box.strip()))
+        w, h = (w if w is not None else vw), (h if h is not None else vh)
     return round(w), round(h), root
 
 

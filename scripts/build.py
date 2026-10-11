@@ -11,6 +11,7 @@ import hashlib
 import html
 import json
 import re
+import struct
 import subprocess
 import sys
 import tempfile
@@ -120,8 +121,11 @@ def check_media(content: dict, outline: dict, pptx: Path) -> list[str]:
     errors = []
     with zipfile.ZipFile(pptx) as z:
         for name in z.namelist():
-            if re.fullmatch(r"ppt/media/[^/]+\.png", name) and not z.read(name).startswith(b"\x89PNG"):
-                errors.append(f"{name}: 不正な PNG です")
+            if re.fullmatch(r"ppt/media/[^/]+\.png", name):
+                try:
+                    assets.png_info(z.read(name))  # 署名・チャンク構造・CRC・画素データまで検証
+                except (assets.AssetError, struct.error) as exc:
+                    errors.append(f"{name}: 不正な PNG です（{exc}）")
         slide_xml = [z.read(n).decode("utf-8") for n in slide_part_names(z)]
     for slide, o_slide, xml in zip(content["slides"], outline["slides"], slide_xml):
         img = o_slide["psl"].get("image")

@@ -124,6 +124,22 @@ class AssetCheckTests(unittest.TestCase):
         self.add("wrong.svg", make_png(1600, 900), media_type="image/png", width=1600, height=900)
         self.assertError("拡張子")
 
+    def test_broken_png_is_rejected(self):
+        good = make_png(1600, 900)
+        cases = {"切断（IHDR まで）": good[:33], "CRC 破損": good[:29] + bytes([good[29] ^ 0xFF]) + good[30:],
+                 "IEND なし": good[:-12]}
+        for i, (name, data) in enumerate(cases.items()):
+            with self.subTest(name):
+                self.setUp()
+                self.add(f"b{i}.png", data, media_type="image/png", width=1600, height=900)
+                self.assertError("解析できません")
+
+    def test_svg_size_prefers_width_height_over_viewbox(self):
+        svg = b'<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 100 100"><rect width="100" height="100" fill="#fff"/></svg>'
+        self.assertEqual(assets.svg_info(svg)[:2], (1600, 900))
+        self.assertEqual(assets.svg_info(b'<svg xmlns="http://www.w3.org/2000/svg" width="100%" viewBox="0 0 400 300"/>')[:2], (400, 300))
+        self.assertEqual(assets.svg_info(b'<svg xmlns="http://www.w3.org/2000/svg" width="4in" height="2.25in"/>')[:2], (384, 216))
+
     def test_cmyk_jpeg_is_rejected(self):
         self.add("p.jpg", make_jpeg_header(1600, 900, 4), media_type="image/jpeg", width=1600, height=900)
         self.assertError("CMYK")
