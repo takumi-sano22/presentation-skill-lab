@@ -1,5 +1,7 @@
 # Gate 4: Windows 版 PowerPoint 実機検証の手順（#10）
 
+> **注意（2026-10-12）:** 本文の7デッキ/固定線/e403単一SVGを前提とする旧キットの項目は**比較用ベースライン**です。v1.0正式判定では [ADR-0003](decisions/0003-v1-readable-er-and-attached-connectors.md) および [新Gate 4必須項目](gate4-v1-acceptance.md) が優先し、#32のノード移動追従と#33のER詳細自動分割を実装した**新しいコミットのキット**で確認します。既存run 38155897432だけではv1.0 Gate 4を解除できません。
+
 対象コミット: `{{COMMIT}}`
 
 この手順は**人が Windows 版 PowerPoint で実施する**。Claude Code / CI は LibreOffice で描画した PDF・PNG と PPTX の XML までしか確認しておらず、PowerPoint 実機での表示・編集・保存は**未実施**である。結果は #10 にコメントで記録する（テンプレートは末尾、キットでは `RECORD_TEMPLATE.md`）。
