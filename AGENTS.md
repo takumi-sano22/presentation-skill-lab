@@ -12,3 +12,5 @@
 - 実装に入るときは `docs/roadmap.md` の Gate/DoD を守る。
 
 - 自走開発を行う場合は `docs/autonomy.md` を参照する。Issue→PR→CI→マージの順序と停止条件を守り、重大な判断を曖昧にして継続しない。
+
+- **v1.0品質の追加決定**: [ADR-0003](docs/decisions/0003-v1-readable-er-and-attached-connectors.md) に従い、#32のPowerPointノード追従コネクタ、#33の高密度ER複数ページ自動分割を必須実装とする。旧e403の約4pt単一SVG・ノード非追従線をv1合格として扱わない。#10でWindows実機判定が終わるまで#11 Release/Tagは禁止。
