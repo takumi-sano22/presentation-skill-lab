@@ -63,7 +63,7 @@ ChatGPT / Claude Code / GitHub の資料 / 会話
 | アーキテクチャ・フロー | nodes / edges の構造化データ | `scripts/diagram.py`（簡易 Sugiyama、決定論的）で配置、PptxGenJS ネイティブ図形（実装済み #6） | ノード・文字・線を編集可能にする |
 | 比較表・マトリクス | 構造化セル、CSV | ネイティブ表/テキスト | 編集可能にする |
 | 棒・折線等の基本グラフ | 生データ+描画属性 | PowerPoint ネイティブ Chart | 編集可能にする |
-| ER図 | エンティティ・属性・PK/FK・関係の構造データ | **ネイティブ図形を原則**、高密度で安全に配置できない場合のみソース保存付きSVGへ明示フォールバック（[ADR-0002](decisions/0002-er-native-first.md)） | 通常は図形/文字/線を編集可、SVG例外は画像内部を編集不可 |
+| ER図 | エンティティ・属性・PK/FK・関係の構造データ | v1.0は**ネイティブ図形優先**。高密度ではER構造を保ち、可読な複数のネイティブ詳細ページへ自動分割（[ADR-0003](decisions/0003-v1-readable-er-and-attached-connectors.md)） | 属性文字を編集可能、ノード移動時は関係線が追従（Windows実機確認は#10） |
 | 独自イラスト・複雑な図 | SVG/PNG + 元プロンプト | 高解像度画像 | 画像として編集／差替可能 |
 | HTML/CSS カスタム図 | HTML ソース + Playwright | SVG/PNG変換して配置 | v1は画像 |
 
