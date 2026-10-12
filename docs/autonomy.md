@@ -2,6 +2,17 @@
 
 対象: `takumi-sano22/presentation-skill-lab`。この規約は実装中のClaude Codeおよび他エージェントに適用する。`AGENTS.md`、`docs/decisions/`、各IssueのDoDが優先し、衝突する場合は安全側を選ぶ。
 
+## v1.0の追加実装ゴール（2026-10-12 / 最優先）
+
+**所有者の最新決定により #32→#33 が新しい自走対象。** #2〜#9は完了済みで、下記の古い `/goal` は過去の実装範囲を示す参考です。新規セッションでは以下を優先し、Accepted [ADR-0003](decisions/0003-v1-readable-er-and-attached-connectors.md) と [Gate 4 v1.0基準](gate4-v1-acceptance.md) を読む。
+
+1. #32: PowerPointで移動すると線が追従するノードコネクタの実装（構成図/ER）。固定PptxGenJS 4.0.1でまずOOXML接続PoC。動的接続のXML検査・実機キットを用意し、CI+レビュー後にマージしてよい。
+2. #33: 元content不変・高密度ERの可読ネイティブ詳細ページ自動分割。#32のコミットをベースにし、1:Nページ対応、全ノード/属性/関係coverage、9pt未満防止、詳細ページのコネクタ追従を実装。CI+レビュー後にマージしてよい。
+3. #10: 新コミットのWindowsキットを生成し、人によるノード移動・接続追従・ER詳細可読性検査を受ける。人の実機操作を行っていないのに合格扱いしない。
+4. #11: Gate4記録と所有者の明示承認前にClose・Release/Tagしない。
+
+**推奨ゴール:** `/goal GitHub Issue #32 と #33 がDoDの自動検証を満たしてPRがmainにsquash merge・CLOSEDとなり、改訂版Gate4 Windowsキットと人間用の確認手順が用意されるまで、依存順に実装を続ける。#10は実機検証待ち、#11はリリース承認待ちでOpenのままにする。停止条件はdocs/autonomy.mdとADR-0003に従い、Issue #12へ進捗を記録する。`
+
 ## 目的と自走の範囲
 
 - **開発**: GitHub Issue #2〜#9 を依存順に実装し、検証、PR作成、CI確認、マージ、Issue Closeまで連続で進める。Issue #12 は進捗管理用。

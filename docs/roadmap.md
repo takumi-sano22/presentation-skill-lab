@@ -19,6 +19,19 @@
 
 **追加決定（2026-10-11）:** ER図は [ADR-0002](decisions/0002-er-native-first.md) により、ネイティブ図形優先・高密度時のみ明示SVGフォールバックへ変更。#19 の完了基準と #10 のWindows PowerPoint実機検査で例外と編集性を検証する。
 
+## v1.0で追加された必須実装（2026-10-12、ADR-0003）
+
+ユーザー指定の品質目標変更により、[ADR-0003](decisions/0003-v1-readable-er-and-attached-connectors.md) を採択。#2〜#9と#19/#22/#24の完了を否定するものではないが、リリース前に以下を追加実装する。
+
+| 順序 | Issue | 自動DoD | 最終Gate |
+|---|---|---|---|
+| 1 | [#32](https://github.com/takumi-sano22/presentation-skill-lab/issues/32) ノード追従コネクタ | 構成図・ERの論理辺がOOXMLの接続ターゲットへ結ばれ、未接続/ID不正はFAIL。属性は個別編集可 | Windowsでノード移動→線追従→保存・再Openを確認 (#10) |
+| 2 | [#33](https://github.com/takumi-sano22/presentation-skill-lab/issues/33) 高密度ER自動分割 | e403が複数の読みやすいネイティブ詳細ページに展開。元データ不変、全エンティティ/属性/関係のcoverage欠落0。#32の接続が維持 | Windowsで全詳細ページの文字/関係/追従を確認 (#10) |
+| 3 | #10 Gate 4再検証 | 最新mainの新Windowsキットを生成してハッシュ/文字保持・視覚QAを検査 | 人間によるPowerPoint実機の記録・判定 |
+| 4 | #11 v1.0リリース | #32/#33のCI証跡・フォント/画像の既知制約・法的表記とバージョン管理 | **ユーザーによる最終承認**、その後Release/Tag |
+
+旧run 38155897432の`gate4-windows-kit`は仕様変更前のベースライン比較に使用可能だが、追従・分割のリリース合格証拠には使わない。詳細は [Gate 4 v1.0検証方針](gate4-v1-acceptance.md)。
+
 ## Gate
 
 - **Gate 0（方針）:** 完了。この ADR とスキーマ v0.1 を開始基準とする。

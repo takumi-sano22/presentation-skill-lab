@@ -1,5 +1,7 @@
 # presentation-skill-lab
 
+> **v1.0リリース判定は保留中（2026-10-12）**: 所有者指定により、高密度ERの可読な複数詳細スライド自動生成（#33）と、構成図・ER図のノード移動に追従するPowerPointコネクタ（#32）が必須です。既存のCI/PPTXは旧仕様ベースラインであり、この2点の実装・Windows実機確認前に#11のRelease/Tagを発行しません。決定は [ADR-0003](docs/decisions/0003-v1-readable-er-and-attached-connectors.md)、新Gateは [docs/gate4-v1-acceptance.md](docs/gate4-v1-acceptance.md)。
+
 Claude Code と ChatGPT の双方から、**中身とデザインを分離**して技術系スライドを生成するためのスキル開発リポジトリ。
 
 > **状態: Phase 1 着手中。** 上流レンダラ（`vendor/presentation-skill` v0.14.0）の固定と描画環境の doctor まで実装済みです。`content.yaml`/`design.yaml` → `outline.json` の adapter と、PPTX/PDF/PNG/静的プレビューを出す共通ビルド CLI（`scripts/build`）まで実装済みです。日本語テーマ（technical-light / technical-dark）・ネイティブ技術図・ER 図（ネイティブ図形、高密度のみ SVG 例外）・画像アセット管理・自動 QA・技術資料3種の視覚ベンチマーク・描画後の装飾の仕上げまで実装済みです。Windows 版 PowerPoint での実機検証（#10）とリリース判定（#11）は未実施です。`scripts/validate.py` は共通データ契約と参照の検査のみです。
